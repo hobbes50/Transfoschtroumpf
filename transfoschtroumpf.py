@@ -1,9 +1,14 @@
-from transformers import AutoTokenizer, PreTrainedTokenizer, CamembertTokenizer
+from transformers import AutoModel, AutoTokenizer, PreTrainedTokenizer, Trainer, TrainingArguments, PreTrainedModel,\
+    EncoderDecoderModel, EncoderDecoderConfig
+from transformers import RobertaConfig, RobertaForCausalLM, modeling_outputs
+from torch import nn, utils
 from typing import List, Set, Dict, Tuple, Pattern, Optional
 
 SENTENCE_PIECE_SPACE="▁"
 
 
+
+NBR_OF_SMURF_TOKENS=3 #_schtroumpf, _Schtroumpf, ##schtroumpf (in-word)
 class SmurfTokenizer(PreTrainedTokenizer):
     # vocab_files_names = tokenization_camembert.VOCAB_FILES_NAMES
     # pretrained_vocab_files_map = tokenization_camembert.PRETRAINED_VOCAB_FILES_MAP
@@ -51,7 +56,7 @@ class SmurfTokenizer(PreTrainedTokenizer):
         if index < self.base_tokenizer.vocab_size:
             return self.base_tokenizer._convert_id_to_token(index)
         else:
-            return self.all_smurf_tokens[index - self.base_tokenizer.vocab_size()]
+            return self.all_smurf_tokens[index - self.base_tokenizer.vocab_size]
 
     def convert_tokens_to_string(self, tokens):
         return self.base_tokenizer.convert_tokens_to_string(tokens)
@@ -88,21 +93,26 @@ class SmurfTokenizer(PreTrainedTokenizer):
             return previous_tokens + [smurf_token] + next_tokens
 
 
-from transformers import AutoModel, RobertaConfig, RobertaForCausalLM, modeling_outputs, Trainer, TrainingArguments
+class TransfoSchtroumpf(EncoderDecoderModel):
 
-from torch import Tensor, nn, utils
-class TransfoSchtroumpf(nn.Module):
-      def __init__(self):
-        super().__init__()
+    def __init__(self, config=None):
 
-        #Add an encoder from a pretrained Camembert
-        self.encoder = AutoModel.from_pretrained("camembert-base", add_pooling_layer=False)
+        encoder = AutoModel.from_pretrained("camembert-base", add_pooling_layer=False)
+        encoder.config.vocab_size += 3
+        encoder.resize_token_embeddings(encoder.config.vocab_size)
+        self.config = encoder.config
+        self.config.is_encoder_decoder = True
 
-        #Adjust embedding sizes
+        super().__init__(self.config)
+        self.encoder = encoder
+
+        # Add an encoder from a pretrained Camembert
+
+        # Adjust embedding sizes
         self.encoder.config.vocab_size = self.encoder.config.vocab_size + 3
         self.encoder.resize_token_embeddings(self.encoder.config.vocab_size)
 
-        #Add a lightweight decoder with a LM head
+        # Add a lightweight decoder with a LM head
         config_decoder = RobertaConfig.from_pretrained("roberta-base")
         config_decoder.vocab_size = self.encoder.config.vocab_size
         config_decoder.is_decoder = True
@@ -112,8 +122,12 @@ class TransfoSchtroumpf(nn.Module):
         self.decoder = RobertaForCausalLM(config_decoder)
         self.decoder.roberta.embeddings = self.encoder.embeddings
 
-      def forward(self, input_ids=None, labels=None, return_dict=None, **kwargs):
-        outputs = self.decoder.roberta(input_ids, encoder_hidden_states=self.encoder(input_ids)[0])
+    def forward(self, input_ids=None, decoder_input_ids=None, labels=None, return_dict=None, **kwargs):
+        if decoder_input_ids is None:
+            if labels is not None:
+                decoder_input_ids = labels
+
+        outputs = self.decoder.roberta(decoder_input_ids, encoder_hidden_states=self.encoder(input_ids)[0])
         prediction_scores = self.decoder.lm_head(outputs[0])
 
         lm_loss = None
@@ -131,16 +145,39 @@ class TransfoSchtroumpf(nn.Module):
         return modeling_outputs.CausalLMOutput(
             loss=lm_loss,
             logits=prediction_scores,
-            hidden_states=outputs.hidden_states,
-            attentions=outputs.attentions)
+            hidden_states=outputs[0])
 
+    def get_input_embeddings(self):
+        return self.encoder.embeddings.word_embeddings
 
-transfoschtroumpf = TransfoSchtroumpf()
-#print(test)
+    def get_output_embeddings(self):
+        return self.decoder.lm_head.decoder
 
-smurf_tok = SmurfTokenizer()
-#data = smurf_tok("Je me schtroumpferai jusqu'à la mort !", return_tensors="pt")
-#print(transfoschtroumpf(**data, labels=smurf_tok("Je me battrai jusqu'à la mort !", return_tensors="pt")["input_ids"]))
+def get_transfoschtroumpf(tokenizer, base_model="camembert-base"):
+    #config = EncoderDecoderConfig.from_encoder_decoder_configs(base_model, base_model)
+    model = EncoderDecoderModel.from_encoder_decoder_pretrained(base_model, base_model)
+
+    model.encoder.config.vocab_size += NBR_OF_SMURF_TOKENS
+    model.encoder.resize_token_embeddings(model.encoder.config.vocab_size)
+    model.decoder.config.vocab_size += NBR_OF_SMURF_TOKENS
+    model.decoder.resize_token_embeddings(model.decoder.config.vocab_size)
+
+    # Add a lightweight decoder with a LM head
+    #config.decoder.is_decoder = True
+    #config.decoder.add_cross_attention = True
+    #config.decoder.num_hidden_layers = 1
+    #config.decoder.num_attention_heads = 1
+
+    print(model)
+
+    # Needed by generation step
+    model.config.decoder_start_token_id = tokenizer.cls_token_id
+    model.config.eos_token_id = tokenizer.sep_token_id
+    model.config.pad_token_id = tokenizer.pad_token_id
+    model.config.vocab_size = model.config.encoder.vocab_size
+
+    return model
+
 
 import torch
 class SmurfDataset(torch.utils.data.Dataset):
@@ -151,10 +188,21 @@ class SmurfDataset(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         item = {key: val[idx] for key, val in self.encodings.items()}
         item['labels'] = self.labels['input_ids'][idx]
+        item["decoder_input_ids"] = self.labels['input_ids'][idx]
         return item
 
     def __len__(self):
         return len(self.labels['input_ids'])
+
+class SmurfTrainer(Trainer):
+    def log(self, logs: Dict[str, float]) -> None:
+        test_sentence = "Je me schtroumpferai jusqu'à la mort !"
+        test_ids = self.tokenizer(test_sentence, return_tensors="pt")["input_ids"]
+        generated = self.model.generate(input_ids=test_ids)
+        result_sentence = self.tokenizer.decode(generated[0])
+        print(result_sentence)
+        logs = {**logs, f"'{test_sentence}'": result_sentence}
+        super().log(logs)
 
 all_raw_data = [("Je me schtroumpferai jusqu'à la mort !",
                    "Je me battrai jusqu'à la mort !"),
@@ -171,49 +219,53 @@ all_raw_data = [("Je me schtroumpferai jusqu'à la mort !",
                   ("Pfff ! On l'a schtroumpfé belle !",
                    "Pfff ! On l'a échappé belle !")]
 
-dataset_size = len(all_raw_data)
-train_size = int(dataset_size*0.8)
+def train_transmoschtroumpf(raw_dataset):
+    dataset_size = len(raw_dataset)
+    train_size = int(dataset_size*0.8)
 
-#train_raw_data = all_raw_data[:train_size]
-#eval_raw_data = all_raw_data[train_size:]
-train_raw_data = all_raw_data
-eval_raw_data = all_raw_data
+    #train_raw_data = all_raw_data[:train_size]
+    #eval_raw_data = all_raw_data[train_size:]
+    train_raw_data = raw_dataset
+    eval_raw_data = raw_dataset
 
-train_encoded_inputs = smurf_tok([x for (x, y) in train_raw_data], padding=True, truncation=True)
-train_encoded_labels = smurf_tok([y for (x, y) in train_raw_data], padding=True, truncation=True)
+    smurf_tok = SmurfTokenizer()
 
-eval_encoded_inputs = smurf_tok([x for (x, y) in eval_raw_data], padding=True, truncation=True)
-eval_encoded_labels = smurf_tok([y for (x, y) in eval_raw_data], padding=True, truncation=True)
+    train_encoded_inputs = smurf_tok([x for (x, y) in train_raw_data], padding=True, truncation=True)
+    train_encoded_labels = smurf_tok([y for (x, y) in train_raw_data], padding=True, truncation=True)
 
-train_dataset = SmurfDataset(train_encoded_inputs, train_encoded_labels)
-eval_dataset = SmurfDataset(eval_encoded_inputs, eval_encoded_labels)
+    eval_encoded_inputs = smurf_tok([x for (x, y) in eval_raw_data], padding=True, truncation=True)
+    eval_encoded_labels = smurf_tok([y for (x, y) in eval_raw_data], padding=True, truncation=True)
 
-model = TransfoSchtroumpf()
+    train_dataset = SmurfDataset(train_encoded_inputs, train_encoded_labels)
+    eval_dataset = SmurfDataset(eval_encoded_inputs, eval_encoded_labels)
 
+    #model = TransfoSchtroumpf()
+    model = get_transfoschtroumpf(smurf_tok)
 
-from transformers import Trainer, TrainingArguments
-training_args = TrainingArguments(
-    output_dir='./results',          # output directory
-    num_train_epochs=1024,              # total # of training epochs
-    per_device_train_batch_size=16,  # batch size per device during training
-    per_device_eval_batch_size=64,   # batch size for evaluation
-    warmup_steps=500,                # number of warmup steps for learning rate scheduler
-    weight_decay=0.01,               # strength of weight decay
-    logging_steps=10,
-    logging_dir='./logs',            # directory for storing logs
-)
+    training_args = TrainingArguments(
+        output_dir='./results',          # output directory
+        num_train_epochs=512,              # total # of training epochs
+        per_device_train_batch_size=16,  # batch size per device during training
+        per_device_eval_batch_size=64,   # batch size for evaluation
+        warmup_steps=256,                # number of warmup steps for learning rate scheduler
+        weight_decay=0.01,               # strength of weight decay
+        logging_steps=10,
+        logging_dir='./logs'            # directory for storing logs
+    )
 
-trainer = Trainer(
-    tokenizer=smurf_tok,
-    model=model,                         # the instantiated 🤗 Transformers model to be trained
-    args=training_args,                  # training arguments, defined above
-    train_dataset=train_dataset,         # training dataset
-    eval_dataset=eval_dataset            # evaluation dataset
-)
+    trainer = SmurfTrainer(
+        tokenizer=smurf_tok,
+        model=model,                         # the instantiated 🤗 Transformers model to be trained
+        args=training_args,                  # training arguments, defined above
+        train_dataset=train_dataset,         # training dataset
+        eval_dataset=eval_dataset)
 
-print("Training...")
-trainer.train()
-print("Evaluating...")
-print(trainer.evaluate())
-#print("Saving model...")
-#model.save_pretrained("saved_models")
+    print("Training...")
+    trainer.train()
+    print("Evaluating...")
+    print(trainer.evaluate())
+    print("Saving model...")
+    model.save_pretrained("saved_models")
+
+if __name__ == '__main__':
+    train_transmoschtroumpf(all_raw_data)
