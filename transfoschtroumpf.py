@@ -153,9 +153,11 @@ class TransfoSchtroumpf(EncoderDecoderModel):
     def get_output_embeddings(self):
         return self.decoder.lm_head.decoder
 
-def get_transfoschtroumpf(tokenizer, base_model="camembert-base"):
+def get_transfoschtroumpf(tokenizer, base_model="camembert-base",
+                          decoder_nbr_of_hidden_layers=1,
+                          decoder_nbr_of_heads=1):
     #config = EncoderDecoderConfig.from_encoder_decoder_configs(base_model, base_model)
-    model = EncoderDecoderModel.from_encoder_decoder_pretrained(base_model, base_model)
+    model : EncoderDecoderModel = EncoderDecoderModel.from_encoder_decoder_pretrained(base_model, base_model)
 
     model.encoder.config.vocab_size += NBR_OF_SMURF_TOKENS
     model.encoder.resize_token_embeddings(model.encoder.config.vocab_size)
@@ -167,6 +169,27 @@ def get_transfoschtroumpf(tokenizer, base_model="camembert-base"):
     #config.decoder.add_cross_attention = True
     #config.decoder.num_hidden_layers = 1
     #config.decoder.num_attention_heads = 1
+    old_nbr_of_hidden_layers = model.decoder.config.num_hidden_layers
+    if decoder_nbr_of_hidden_layers != old_nbr_of_hidden_layers:
+        step = old_nbr_of_hidden_layers // decoder_nbr_of_hidden_layers
+
+        model.decoder.config.num_hidden_layers = decoder_nbr_of_hidden_layers
+        old_hidden_layers = model.decoder.roberta.encoder.layer
+        new_hidden_layers = nn.ModuleList()
+        layer_to_keep = 0
+        for i in range(decoder_nbr_of_hidden_layers - 1):
+            new_hidden_layers.append(old_hidden_layers[layer_to_keep])
+            layer_to_keep += step
+
+        new_hidden_layers.append(old_hidden_layers[-1])
+
+        model.decoder.roberta.encoder.layer = nn.ModuleList(new_hidden_layers)
+
+    #old_nbr_of_attention_heads = model.decoder.config.num_attention_heads
+    #if decoder_nbr_of_heads != old_nbr_of_attention_heads:
+    #    model.decoder.prune_heads({i: list(range(old_nbr_of_attention_heads - decoder_nbr_of_heads))
+    #                               for i in range(decoder_nbr_of_hidden_layers)})
+    #    model.decoder.config.num_attention_heads = decoder_nbr_of_heads
 
     print(model)
 
@@ -174,6 +197,9 @@ def get_transfoschtroumpf(tokenizer, base_model="camembert-base"):
     model.config.decoder_start_token_id = tokenizer.cls_token_id
     model.config.eos_token_id = tokenizer.sep_token_id
     model.config.pad_token_id = tokenizer.pad_token_id
+
+    model.config.encoder = model.encoder.config
+    model.config.decoder = model.decoder.config
     model.config.vocab_size = model.config.encoder.vocab_size
 
     return model
@@ -200,7 +226,6 @@ class SmurfTrainer(Trainer):
         test_ids = self.tokenizer(test_sentence, return_tensors="pt")["input_ids"]
         generated = self.model.generate(input_ids=test_ids)
         result_sentence = self.tokenizer.decode(generated[0])
-        print(result_sentence)
         logs = {**logs, f"'{test_sentence}'": result_sentence}
         super().log(logs)
 
@@ -244,7 +269,7 @@ def train_transmoschtroumpf(raw_dataset):
 
     training_args = TrainingArguments(
         output_dir='./results',          # output directory
-        num_train_epochs=512,              # total # of training epochs
+        num_train_epochs=1,              # total # of training epochs
         per_device_train_batch_size=16,  # batch size per device during training
         per_device_eval_batch_size=64,   # batch size for evaluation
         warmup_steps=256,                # number of warmup steps for learning rate scheduler
