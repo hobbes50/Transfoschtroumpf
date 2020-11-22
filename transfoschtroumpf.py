@@ -1,8 +1,11 @@
 from transformers import AutoModel, AutoTokenizer, PreTrainedTokenizer, Trainer, TrainingArguments, PreTrainedModel,\
-    EncoderDecoderModel, EncoderDecoderConfig
+    EncoderDecoderModel, EncoderDecoderConfig, DataCollatorWithPadding
 from transformers import RobertaConfig, RobertaForCausalLM, modeling_outputs
+from datasets import load_dataset
 from torch import nn, utils
-from typing import List, Set, Dict, Tuple, Pattern, Optional
+from typing import List, Set, Dict, Tuple, Pattern, Optional, Union
+import os
+from dataclasses import dataclass
 
 SENTENCE_PIECE_SPACE="▁"
 
@@ -191,7 +194,7 @@ def get_transfoschtroumpf(tokenizer, base_model="camembert-base",
     #                               for i in range(decoder_nbr_of_hidden_layers)})
     #    model.decoder.config.num_attention_heads = decoder_nbr_of_heads
 
-    print(model)
+    #print(model)
 
     # Needed by generation step
     model.config.decoder_start_token_id = tokenizer.cls_token_id
@@ -203,6 +206,25 @@ def get_transfoschtroumpf(tokenizer, base_model="camembert-base",
     model.config.vocab_size = model.config.encoder.vocab_size
 
     return model
+
+def prepare_sentence(tokenizer, data_sample, from_language="smurf", to_language="french"):
+    item = tokenizer(data_sample[from_language])
+    item['labels'] = tokenizer(data_sample[to_language])["input_ids"]
+    #item["decoder_input_ids"] = tokenizer(data_sample[to_language])["input_ids"]
+    return item
+
+def get_dataset(tokenizer, data_dir="./data"):
+    #files = [os.path.join(data_dir, file) for file in os.listdir(data_dir) if file.endswith(".txt")]
+    files = ['./data/la_faim_des_schtroumpfs.txt']
+    dataset = load_dataset('csv',
+                           data_files=files,
+                           column_names=["smurf", "french"],
+                           delimiter=";",
+                           quote_char=None)
+    dataset = dataset.map(lambda x: prepare_sentence(tokenizer, x))
+    dataset = dataset["train"].train_test_split(test_size=0.1)
+    dataset.set_format(type='torch')
+    return dataset
 
 
 import torch
@@ -244,6 +266,29 @@ all_raw_data = [("Je me schtroumpferai jusqu'à la mort !",
                   ("Pfff ! On l'a schtroumpfé belle !",
                    "Pfff ! On l'a échappé belle !")]
 
+@dataclass
+class EncoderDecoderCollator(DataCollatorWithPadding):
+    def __call__(self, features: List[Dict[str, Union[List[int], torch.Tensor]]]) -> Dict[str, torch.Tensor]:
+        features_decoder = [{"input_ids":sample["labels"]} for sample in features]
+        for sample in features:
+            del sample["labels"]
+        batch = self.tokenizer.pad(features,
+                                   padding=self.padding,
+                                   max_length=self.max_length,
+                                   pad_to_multiple_of=self.pad_to_multiple_of,
+                                   return_tensors="pt")
+
+        batch_labels = self.tokenizer.pad(features_decoder,
+                                          padding=self.padding,
+                                          max_length=self.max_length,
+                                          pad_to_multiple_of=self.pad_to_multiple_of,
+                                          return_tensors="pt")
+
+        batch["labels"] = batch_labels["input_ids"]
+        batch["decoder_input_ids"] = batch_labels["input_ids"]
+
+        return batch
+
 def train_transmoschtroumpf(raw_dataset):
     dataset_size = len(raw_dataset)
     train_size = int(dataset_size*0.8)
@@ -266,10 +311,11 @@ def train_transmoschtroumpf(raw_dataset):
 
     #model = TransfoSchtroumpf()
     model = get_transfoschtroumpf(smurf_tok)
+    dataset = get_dataset(smurf_tok)
 
     training_args = TrainingArguments(
         output_dir='./results',          # output directory
-        num_train_epochs=1,              # total # of training epochs
+        num_train_epochs=100,              # total # of training epochs
         per_device_train_batch_size=16,  # batch size per device during training
         per_device_eval_batch_size=64,   # batch size for evaluation
         warmup_steps=256,                # number of warmup steps for learning rate scheduler
@@ -282,8 +328,9 @@ def train_transmoschtroumpf(raw_dataset):
         tokenizer=smurf_tok,
         model=model,                         # the instantiated 🤗 Transformers model to be trained
         args=training_args,                  # training arguments, defined above
-        train_dataset=train_dataset,         # training dataset
-        eval_dataset=eval_dataset)
+        train_dataset=dataset["train"],         # training dataset
+        eval_dataset=dataset["test"],
+        data_collator=EncoderDecoderCollator(smurf_tok))
 
     print("Training...")
     trainer.train()
