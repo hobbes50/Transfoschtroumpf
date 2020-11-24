@@ -1,24 +1,24 @@
-Qu'est-ce qu'on schtroumpfe ?
-Si on schtroumpfait un pique-nique ?
-Ça c'est une chouette idée !
-Non ! Impossible de schtroumpfer aux boules ! L'herbe est trop haute !
-Ouinnn ! Je me suis schtroumpfé dans la mousse et j'ai une tache sur ma belle culotte toute neuve !
-Reschtroumpfons au village !
-Entrez et schtroumpfez ce qu'il vous faut !
-Tu n'as pas vu le tire-bouschtroumpf ? Tu veux dire : le schtroumpfe-bouchon ?
-Et voilà ! Schtroumpfez ma chaise pliante ! J'ouvre...
-Eh venez voir mon barbeschtroumpf qui schtroumpfe sans fumée !
-Pas très pratique pour schtroumpfer l'herbe ce truc-là !
-Si je schtroumpfe un collimaschtroumpfeur ici, qui entraîne un rotor dont la démultiplicaschtroumpf donne la force voulue...
-Et voilà ! Voyons ce que cela schtroumpfe !
-Si je supprime la démultiplicaschtroumpf, que j'enlève le rotor et coupe le collimaschtroumpfeur...
-Et moi ! Regardez ce que j'ai schtroumpfé !
-Mais enfin Schtroumpf bêta, qu'est-ce que tu vas faire avec ce grand rateau ?
-Ben, schtroumpfer les grandes feuilles, tiens !
-Regardez ce panneau ! Ce doit être schtroumpfement bien !
-Allons, allons-y ! Schtroumpf devant, toi ! Moi ? Pourquoi moi ?
-Qui a bien pu schtroumpfer tout ça ? Je ne sais pas, en tout cas c'est schtroumpfement bien schtroumpfé !
-Aïe ! Mes yeux ! Ça pique ! Je ne schtroumpfe plus rien !
-Au secours ! On a schtroumpfé de la colle sur la balançoire !
-Non mais vous ne vous êtes pas schtroumpfé, vieux bouc ?
-Je les avais prévenus, mais ils ne m'ont pas schtroumpfé !
+Qu'est-ce qu'on schtroumpfe ?;Qu'est-ce qu'on fait ?
+Si on schtroumpfait un pique-nique ?;Si on faisait un pique-nique ?
+Ça c'est une schtroumpf idée !;Ça c'est une chouette idée !
+Non ! Impossible de schtroumpfer aux boules ! L'herbe est trop haute !;Non ! Impossible de jouer aux boules ! L'herbe est trop haute !
+Ouinnn ! Je me suis schtroumpfé dans la mousse et j'ai une tache sur ma belle culotte toute neuve !;Ouinnn ! Je me suis assis dans la mousse et j'ai une tache sur ma belle culotte toute neuve !
+Reschtroumpfons au village !;Retournons au village !
+Entrez et schtroumpfez ce qu'il vous faut !;Entrez et prenez ce qu'il vous faut !
+Tu n'as pas vu le tire-bouschtroumpf ? Tu veux dire : le schtroumpfe-bouchon ?;Tu n'as pas vu le tire-bouchon ? Tu veux dire : le tire-bouchon ?
+Et voilà ! Schtroumpfez ma chaise pliante ! J'ouvre...;Et voilà ! Regardez ma chaise pliante ! J'ouvre...
+Eh venez voir mon barbeschtroumpf qui schtroumpfe sans fumée !;Eh venez voir mon barbecue qui brûle sans fumée !
+Pas très pratique pour schtroumpfer l'herbe ce truc-là !;Pas très pratique pour couper l'herbe ce truc-là !
+Si je schtroumpfe un collimaschtroumpfeur ici, qui entraîne un rotor dont la démultiplicaschtroumpf donne la force voulue...;Si je met un collimateur ici, qui entraîne un rotor dont la démultiplication donne la force voulue...
+Et voilà ! Voyons ce que cela schtroumpfe !;Et voilà ! Voyons ce que cela donne !
+Si je supprime la démultiplicaschtroumpf, que j'enlève le rotor et coupe le collimaschtroumpfeur...;Si je supprime la démultiplication, que j'enlève le rotor et coupe le collimateur...
+Et moi ! Regardez ce que j'ai schtroumpfé !;Et moi ! Regardez ce que j'ai trouvé !
+Mais enfin Schtroumpf bêta, qu'est-ce que tu vas faire avec ce grand rateau ?;Mais enfin Schtroumpf bêta, qu'est-ce que tu vas faire avec ce grand rateau ?
+Ben, schtroumpfer les grandes feuilles, tiens !;Ben, ramasser les grandes feuilles, tiens !
+Regardez ce panneau ! Ce doit être schtroumpfement bien !;Regardez ce panneau ! Ce doit être drôlement bien !
+Allons, allons-y ! Schtroumpf devant, toi ! Moi ? Pourquoi moi ?;Allons, allons-y ! Passe devant, toi ! Moi ? Pourquoi moi ?
+Qui a bien pu schtroumpfer tout ça ? Je ne sais pas, en tout cas c'est schtroumpfement bien schtroumpfé !;Qui a bien pu faire tout ça ? Je ne sais pas, en tout cas c'est drôlement bien fait !
+Aïe ! Mes yeux ! Ça pique ! Je ne schtroumpfe plus rien !;Aïe ! Mes yeux ! Ça pique ! Je ne vois plus rien !
+Au secours ! On a schtroumpfé de la colle sur la balançoire !;Au secours ! On a mis de la colle sur la balançoire !
+Non mais vous ne vous êtes pas schtroumpfé, vieux bouc ?;Non mais vous ne vous êtes pas regardé, vieux bouc ?
+Je les avais prévenus, mais ils ne m'ont pas schtroumpfé !;Je les avais prévenus, mais ils ne m'ont pas écouté !
