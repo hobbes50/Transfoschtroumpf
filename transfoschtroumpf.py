@@ -3,6 +3,7 @@ from transformers import AutoModel, AutoTokenizer, PreTrainedTokenizer, Trainer,
 from transformers import RobertaConfig, RobertaForCausalLM, modeling_outputs
 from datasets import load_dataset
 from torch import nn, utils
+import torch
 from typing import List, Set, Dict, Tuple, Pattern, Optional, Union
 import os
 from dataclasses import dataclass
@@ -214,8 +215,7 @@ def prepare_sentence(tokenizer, data_sample, from_language="smurf", to_language=
     return item
 
 def get_dataset(tokenizer, data_dir="./data"):
-    #files = [os.path.join(data_dir, file) for file in os.listdir(data_dir) if file.endswith(".txt")]
-    files = ['./data/la_faim_des_schtroumpfs.txt']
+    files = [os.path.join(data_dir, file) for file in os.listdir(data_dir) if file.endswith(".txt")]
     dataset = load_dataset('csv',
                            data_files=files,
                            column_names=["smurf", "french"],
@@ -226,22 +226,6 @@ def get_dataset(tokenizer, data_dir="./data"):
     dataset.set_format(type='torch')
     return dataset
 
-
-import torch
-class SmurfDataset(torch.utils.data.Dataset):
-    def __init__(self, encodings, labels):
-        self.encodings = encodings
-        self.labels = labels
-
-    def __getitem__(self, idx):
-        item = {key: val[idx] for key, val in self.encodings.items()}
-        item['labels'] = self.labels['input_ids'][idx]
-        item["decoder_input_ids"] = self.labels['input_ids'][idx]
-        return item
-
-    def __len__(self):
-        return len(self.labels['input_ids'])
-
 class SmurfTrainer(Trainer):
     def log(self, logs: Dict[str, float]) -> None:
         test_sentence = "Je me schtroumpferai jusqu'à la mort !"
@@ -251,20 +235,6 @@ class SmurfTrainer(Trainer):
         logs = {**logs, f"'{test_sentence}'": result_sentence}
         super().log(logs)
 
-all_raw_data = [("Je me schtroumpferai jusqu'à la mort !",
-                   "Je me battrai jusqu'à la mort !"),
-                  ("Qu'est-ce qu'il fait schtroumpf ! J'aurais dû prendre une écharpe !",
-                   "Qu'est-ce qu'il fait froid ! J'aurais dû prendre une écharpe !"),
-                  ("Il va falloir schtroumpfer par le gué !",
-                   "Il va falloir passer par le gué !"),
-                  ("Schtroumpfons une petite chanson de marche pour nous schtroumpfer du courage !",
-                   "Chantons une petite chanson de marche pour nous donner du courage !"),
-                  ("Trois petites lieues à pied, ça schtroumpfe, ça schtroumpfe !",
-                   "Trois petites lieues à pied, ça use, ça use !"),
-                  ("Il va nous schtroumpfer comme des souris !",
-                   "Il va nous croquer comme des souris !"),
-                  ("Pfff ! On l'a schtroumpfé belle !",
-                   "Pfff ! On l'a échappé belle !")]
 
 @dataclass
 class EncoderDecoderCollator(DataCollatorWithPadding):
@@ -289,27 +259,9 @@ class EncoderDecoderCollator(DataCollatorWithPadding):
 
         return batch
 
-def train_transmoschtroumpf(raw_dataset):
-    dataset_size = len(raw_dataset)
-    train_size = int(dataset_size*0.8)
-
-    #train_raw_data = all_raw_data[:train_size]
-    #eval_raw_data = all_raw_data[train_size:]
-    train_raw_data = raw_dataset
-    eval_raw_data = raw_dataset
-
+def train_transmoschtroumpf():
     smurf_tok = SmurfTokenizer()
 
-    train_encoded_inputs = smurf_tok([x for (x, y) in train_raw_data], padding=True, truncation=True)
-    train_encoded_labels = smurf_tok([y for (x, y) in train_raw_data], padding=True, truncation=True)
-
-    eval_encoded_inputs = smurf_tok([x for (x, y) in eval_raw_data], padding=True, truncation=True)
-    eval_encoded_labels = smurf_tok([y for (x, y) in eval_raw_data], padding=True, truncation=True)
-
-    train_dataset = SmurfDataset(train_encoded_inputs, train_encoded_labels)
-    eval_dataset = SmurfDataset(eval_encoded_inputs, eval_encoded_labels)
-
-    #model = TransfoSchtroumpf()
     model = get_transfoschtroumpf(smurf_tok)
     dataset = get_dataset(smurf_tok)
 
@@ -340,4 +292,4 @@ def train_transmoschtroumpf(raw_dataset):
     model.save_pretrained("saved_models")
 
 if __name__ == '__main__':
-    train_transmoschtroumpf(all_raw_data)
+    train_transmoschtroumpf()
