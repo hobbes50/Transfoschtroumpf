@@ -1,5 +1,7 @@
 from enum import Enum, auto
 from typing import Dict, List
+from dataclasses import dataclass
+import re
 import sys
 
 class FrenchTense(Enum):
@@ -14,6 +16,7 @@ class FrenchTense(Enum):
     INFINITIF = auto()
     GERONDIF = auto()
     PARTICIPE_PASSE = auto()
+    NONE = auto()
 
 
 First_group_suffix: Dict[FrenchTense, List[str]] = {}
@@ -53,30 +56,98 @@ def conjugate_1st_group_verb(radical: str,
 
     return radical + suffix
 
+class BasicPOS(Enum):
+    VERB = auto()
+    NOUN = auto()
+    ADVERB = auto()
+    ADJECTIVE = auto()
+    AUXILIARY = auto()
+    INTERJECTION = auto()
+    OTHER = auto()
 
 
+SCHTROUMPF_STR="schtroumpf"
+UNTOUCHED_VERB_PREFIXS = re.compile(r"^(dé|re|en)")
 
+class FrenchWord:
+    def text(self) -> str:
+        raise NotImplementedError()
 
+    def pos(self) -> BasicPOS:
+        raise NotImplementedError()
 
-# tu schtroumpfes
-# il schtroumpfe
-# nous schtroumpfons
-# vous schtroumpfez
-# ils schtroumpfent
-#"]
+    def tense(self) -> FrenchTense:
+        raise NotImplementedError()
 
-# Nom : schtroumpf
-# -tion: schtroumpf
-# -teur: schtroumpfeur
+    def person(self) -> int:  # 1..3
+        raise NotImplementedError()
 
-# Pronom, Article : jamais
-# Auxiliaire être, avoir: jamais
+    def is_plural(self) -> bool:
+        raise NotImplementedError()
 
-# Adjectif : schtroumf, schtroumpfant
-# Adverbe : schtroumpfement
-# Interjection : Schtroumpf !
+    def plural_suffix(self) -> str:
+        return "s" if self.is_plural() else ""
 
-# Verbe
-#re-<verb> = re-schtroumpf
-#dé-<verb> = dé-schtroumpf
-#en-<verb> = en-schtroumpf
+    def is_feminine(self) -> bool:
+        raise NotImplementedError()
+
+    def to_smurf(self) -> str:
+        pos = self.pos()
+
+        if pos == BasicPOS.NOUN:
+            m = re.search(r"tion(s)?$", self.text())
+            if m:
+                new_text = self.text()[:m.span()[0]] + SCHTROUMPF_STR
+            else:
+                m = re.search(r"teur(s)?$", self.text())
+                if m:
+                    new_text = self.text()[:m.span()[0]] + SCHTROUMPF_STR + "eur"
+                else:
+                    new_text = SCHTROUMPF_STR
+
+            return new_text + self.plural_suffix()
+        elif pos == BasicPOS.VERB:
+            prefix = ""
+            m = re.match(UNTOUCHED_VERB_PREFIXS, self.text())
+            if m:
+                prefix = self.text()[:m.span()[1]]
+            return prefix + conjugate_1st_group_verb(SCHTROUMPF_STR,
+                                                     self.tense(),
+                                                     self.person(),
+                                                     self.is_feminine(),
+                                                     self.is_plural())
+        elif pos == BasicPOS.ADVERB:
+            return SCHTROUMPF_STR + "ement"
+        elif pos == BasicPOS.ADJECTIVE:
+            return SCHTROUMPF_STR + self.plural_suffix()
+        elif pos == BasicPOS.INTERJECTION:
+            return SCHTROUMPF_STR
+        else:
+            return self.text()
+
+@dataclass
+class FrenchWordTest(FrenchWord):
+    _text: str
+    _pos: BasicPOS
+    _tense: FrenchTense = FrenchTense.NONE
+    _person: int = 3
+    _plural: bool = False
+    _feminine: bool = False
+
+    def text(self) -> str:
+        return self._text
+
+    def pos(self) -> BasicPOS:
+        return self._pos
+
+    def tense(self) -> FrenchTense:
+        return self._tense
+
+    def person(self) -> int:  # 1..3
+        return self._person
+
+    def is_feminine(self) -> bool:
+        return self._feminine
+
+    def is_plural(self) -> bool:
+        return self._plural
