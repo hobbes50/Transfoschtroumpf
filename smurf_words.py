@@ -1,6 +1,7 @@
 from enum import Enum, auto
 from typing import Dict, List
 from dataclasses import dataclass
+from spacy.tokens import Token as SpacyToken
 import re
 import sys
 
@@ -38,12 +39,10 @@ def conjugate_1st_group_verb(radical: str,
                              person: int,  # 1 = 1st person
                              feminine: bool = False,
                              plural: bool = False):
-    suffix = ""
-
     if tense not in First_group_suffix:
         print(f"Invalid tense: {tense.name}", file=sys.stderr)
         suffix = First_group_suffix[FrenchTense.INFINITIF][0]
-    if tense == FrenchTense.PARTICIPE_PASSE:
+    elif tense == FrenchTense.PARTICIPE_PASSE:
         index = feminine + 2*plural
         suffix = First_group_suffix[tense][index]
     else:
@@ -151,3 +150,93 @@ class FrenchWordTest(FrenchWord):
 
     def is_plural(self) -> bool:
         return self._plural
+
+
+SpacyTag_to_BasicPOS: Dict[str, BasicPOS] = {"NOUN": BasicPOS.NOUN,
+                                             "ADJ": BasicPOS.ADJECTIVE,
+                                             "ADV": BasicPOS.ADVERB,
+                                             "AUX": BasicPOS.AUXILIARY,
+                                             "VERB": BasicPOS.VERB,
+                                             "INTJ": BasicPOS.INTERJECTION}
+
+
+class FrenchWordSpacy(FrenchWord):
+    def __init__(self, token: SpacyToken):
+        self.token = token
+        features = token.tag_.split("__")
+        self.pos = features[0]
+        self.features = dict(map(lambda x: x.split("="), features[1].split("|")))
+
+    def text(self) -> str:
+        return self.token.string
+
+    def pos(self) -> BasicPOS:
+        try:
+            return SpacyTag_to_BasicPOS[self.pos]
+        except KeyError:
+            return BasicPOS.OTHER
+
+    def tense(self) -> FrenchTense:
+        try:
+            verbform = self.features["VerbForm"]
+        except KeyError:
+            verbform = ""
+
+        if verbform == "Inf":
+            return FrenchTense.INFINITIF
+
+        try:
+            tense = self.features["Tense"]
+        except KeyError:
+            tense = ""
+
+        if verbform == "Part":
+            if tense == "Pres":
+                return FrenchTense.GERONDIF
+            else:
+                return FrenchTense.PARTICIPE_PASSE
+
+        try:
+            mood = self.features["Mood"]
+        except KeyError:
+            mood = ""
+
+        if mood == "Ind":
+            if tense == "Pres":
+                return FrenchTense.PRESENT
+            elif tense == "Imp":
+                return FrenchTense.SUBJ_IMPARFAIT
+            elif tense == "Past":
+                return FrenchTense.PASSE_SIMPLE
+            elif tense == "Fut":
+                return FrenchTense.FUTUR
+        elif mood == "Sub":
+            if tense == "Pres":
+                return FrenchTense.SUBJ_PRESENT
+            elif tense == "Past":
+                return FrenchTense.SUBJ_IMPARFAIT
+        elif mood == "Cnd":
+            if tense == "Pres":
+                return FrenchTense.COND_PRESENT
+        elif mood == "Imp":
+            return FrenchTense.IMPERATIF
+
+        return FrenchTense.NONE
+
+    def person(self) -> int:  # 1..3
+        try:
+            return int(self.features["Person"])
+        except (KeyError, ValueError):
+            return 0
+
+    def is_feminine(self) -> bool:
+        try:
+            return self.features["Gender"] == "Fem"
+        except KeyError:
+            return False
+
+    def is_plural(self) -> bool:
+        try:
+            return self.features["Number"] == "Plur"
+        except KeyError:
+            return False
