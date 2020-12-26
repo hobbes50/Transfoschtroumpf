@@ -362,3 +362,37 @@ def smurf_stanza(text: str, smurf_indexes: Optional[List[int]] = None):
 
     return smurf_text
 
+def test_smurf_dataset(data_dir="./data"):
+    files = [os.path.join(data_dir, file) for file in os.listdir(data_dir) if file.endswith(".txt")]
+    dataset = load_dataset('csv',
+                           data_files=files,
+                           column_names=["smurf", "french"],
+                           delimiter=";",
+                           quote_char=None)
+    nlp = stanza.Pipeline(lang='fr', processors="tokenize")
+    nbr_of_examples = 0
+    nbr_of_correct_examples = 0
+    for example in dataset["train"]:
+        nbr_of_examples += 1
+        doc_smurf = nlp(example["smurf"])
+        doc_fr = nlp(example["french"])
+        smurf_indexes = set()
+        for s, sentence in enumerate(doc_smurf.sentences):
+            for n, token in enumerate(sentence.tokens):
+                if SCHTROUMPF_STR in token.text.lower():
+                    smurf_indexes.add((s, n))
+
+        to_smurf = smurf_stanza(doc_fr.text, smurf_indexes)
+        if to_smurf == doc_smurf.text:
+            nbr_of_correct_examples += 1
+        else:
+            print("==================ERROR==================")
+            print("FRENCH  : " + doc_fr.text)
+            print("TO_SMURF: " + to_smurf)
+            print("LABEL   : " + doc_smurf.text)
+            print("=========================================")
+
+    print(f"\nTotal correct = {nbr_of_correct_examples}/{nbr_of_examples} "
+          f"({nbr_of_correct_examples/nbr_of_examples}%)")
+
+test_smurf_dataset()
