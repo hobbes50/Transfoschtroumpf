@@ -1,11 +1,13 @@
 from enum import Enum, auto
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set, Tuple
 from dataclasses import dataclass
 import spacy
 from spacy.tokens import Token as SpacyToken
+from datasets import load_dataset
 import stanza
 import re
 import sys
+import os
 
 class FrenchTense(Enum):
     PRESENT = auto()
@@ -98,6 +100,10 @@ class FrenchWord:
         raise NotImplementedError()
 
     def can_smurf(self) -> bool:
+        # Already "smurfed" words must be left untouched (often proper nouns, e.g. "Grand Schtroumpf")
+        if SCHTROUMPF_STR in self.text().lower():
+            return False
+
         pos = self.pos()
         return (pos == BasicPOS.NOUN
                 or
@@ -119,18 +125,18 @@ class FrenchWord:
             if m:
                 new_text = self.text()[:m.span()[0]] + SCHTROUMPF_STR
             else:
-                m = re.search(r"teur(s)?$", self.text())
-                if m:
-                    new_text = self.text()[:m.span()[0]] + SCHTROUMPF_STR + "eur"
-                else:
-                    new_text = SCHTROUMPF_STR
+                #m = re.search(r"teur(s)?$", self.text())
+                #if False and m:
+                #    new_text = self.text()[:m.span()[0]] + SCHTROUMPF_STR + "eur"
+                #else:
+                new_text = SCHTROUMPF_STR
 
             new_text += self.plural_suffix()
         elif pos == BasicPOS.VERB:
             prefix = ""
-            m = re.match(UNTOUCHED_VERB_PREFIXS, self.text())
-            if m:
-                prefix = self.text()[:m.span()[1]]
+            #m = re.match(UNTOUCHED_VERB_PREFIXS, self.text())
+            #if m:
+            #    prefix = self.text()[:m.span()[1]]
             new_text = prefix + conjugate_1st_group_verb(SCHTROUMPF_STR,
                                                          self.tense(),
                                                          self.person(),
@@ -139,13 +145,17 @@ class FrenchWord:
         elif pos == BasicPOS.ADVERB:
             new_text = SCHTROUMPF_STR + "ement"
         elif pos == BasicPOS.ADJECTIVE:
-            new_text = SCHTROUMPF_STR + self.plural_suffix()
+            new_text = SCHTROUMPF_STR \
+                       + ("ant" if self.text().endswith("ant") or self.text().endswith("ants") else "") \
+                       + self.plural_suffix()
         elif pos == BasicPOS.INTERJECTION:
             new_text = SCHTROUMPF_STR
         else:
             new_text = self.text()
 
-        if self.text() and self.text()[0].isupper():
+        if self.text() and self.text().isupper():
+            new_text = new_text.upper()
+        elif self.text() and self.text()[0].isupper():
             new_text = new_text[0].upper() + (new_text[1:] if len(new_text) > 1 else "")
 
         return new_text
@@ -340,21 +350,28 @@ class FrenchWordStanza(FrenchWord):
 
 
 Stanza_fr_model = None
-
-
-def smurf_stanza(text: str, smurf_indexes: Optional[List[int]] = None):
+def get_fr_model():
     global Stanza_fr_model
     if Stanza_fr_model is None:
         Stanza_fr_model = stanza.Pipeline(lang='fr', processors='tokenize,mwt,pos,lemma')
-    doc: StanzaDoc = Stanza_fr_model(text)
+    return Stanza_fr_model
+
+def smurf_stanza(text: str, smurf_indexes: Optional[Set[Tuple[int, int]]] = None):
+    nlp = get_fr_model()
+    doc: StanzaDoc = nlp(text)
     smurf_text = ""
     last_token_end_char = 0
-    for sentence in doc.sentences:
+    for s, sentence in enumerate(doc.sentences):
         for n, token in enumerate(sentence.tokens):
             smurf_text += text[last_token_end_char:token.start_char]
             last_token_end_char = token.end_char
-            if smurf_indexes is None or n in smurf_indexes:
+            if smurf_indexes is None or (s, n) in smurf_indexes:
                 smurf_word = FrenchWordStanza(token).to_smurf()
+                # Quick and dirty fix of apostrophe (') issues (me vs m' etc.)
+                # Proper handling should use linguistic features
+                # (e.g. "l'alouette" = "la alouette" while "l'oiseau" = "le oiseau")
+                if smurf_text.lower().endswith("'") and not re.match("[aeiou]", smurf_word.lower()):
+                    smurf_text = smurf_text[:-1] + "e "
                 smurf_text += smurf_word
             else:
                 smurf_text += text[token.start_char:last_token_end_char]
