@@ -125,25 +125,30 @@ class FrenchWord:
                 else:
                     new_text = SCHTROUMPF_STR
 
-            return new_text + self.plural_suffix()
+            new_text += self.plural_suffix()
         elif pos == BasicPOS.VERB:
             prefix = ""
             m = re.match(UNTOUCHED_VERB_PREFIXS, self.text())
             if m:
                 prefix = self.text()[:m.span()[1]]
-            return prefix + conjugate_1st_group_verb(SCHTROUMPF_STR,
-                                                     self.tense(),
-                                                     self.person(),
-                                                     self.is_feminine(),
-                                                     self.is_plural())
+            new_text = prefix + conjugate_1st_group_verb(SCHTROUMPF_STR,
+                                                         self.tense(),
+                                                         self.person(),
+                                                         self.is_feminine(),
+                                                         self.is_plural())
         elif pos == BasicPOS.ADVERB:
-            return SCHTROUMPF_STR + "ement"
+            new_text = SCHTROUMPF_STR + "ement"
         elif pos == BasicPOS.ADJECTIVE:
-            return SCHTROUMPF_STR + self.plural_suffix()
+            new_text = SCHTROUMPF_STR + self.plural_suffix()
         elif pos == BasicPOS.INTERJECTION:
-            return SCHTROUMPF_STR
+            new_text = SCHTROUMPF_STR
         else:
-            return self.text()
+            new_text = self.text()
+
+        if self.text() and self.text()[0].isupper():
+            new_text = new_text[0].upper() + (new_text[1:] if len(new_text) > 1 else "")
+
+        return new_text
 
 @dataclass
 class FrenchWordTest(FrenchWord):
