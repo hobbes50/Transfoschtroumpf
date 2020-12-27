@@ -9,6 +9,8 @@ import re
 import sys
 import os
 
+SCHTROUMPF_STR="schtroumpf"
+
 class FrenchTense(Enum):
     PRESENT = auto()
     IMPARFAIT = auto()
@@ -37,6 +39,43 @@ First_group_suffix[FrenchTense.IMPERATIF] = ["<?>", "es", "<?>", "ons", "ez", "<
 First_group_suffix[FrenchTense.GERONDIF] = ["ant"]
 First_group_suffix[FrenchTense.INFINITIF] = ["er"]
 First_group_suffix[FrenchTense.PARTICIPE_PASSE] = ["é", "ée", "és", "ées"]
+
+SPECIAL_SMURF_NOUNS: Dict[str, str] = {
+    "bouchon":f"bou{SCHTROUMPF_STR}",
+    "fratricide":f"{SCHTROUMPF_STR}icide",
+    "montgolfière":f"mont{SCHTROUMPF_STR}ière",
+    "nitroglycérine":f"nitroglycé{SCHTROUMPF_STR}",
+    "parapluie":f"para{SCHTROUMPF_STR}",
+    "pistolet":f"pisto{SCHTROUMPF_STR}",
+    "pneumonie":f"pneumo{SCHTROUMPF_STR}",
+    "soporifique":f"sopori{SCHTROUMPF_STR}",
+    "symphonie":f"{SCHTROUMPF_STR}onie",
+    "trombone":f"{SCHTROUMPF_STR}bone"}
+
+SPECIAL_SMURF_ADJECTIVES: Dict[str, str] = {
+    "formidable":f"formi{SCHTROUMPF_STR}",
+    "esthétique":f"esthéti{SCHTROUMPF_STR}",
+    "universel":f"univer{SCHTROUMPF_STR}"
+}
+
+SPECIAL_SMURF_VERBS: Dict[str, str] = {
+    "défaire":f"dé{SCHTROUMPF_STR}er",
+    "entraider":f"en{SCHTROUMPF_STR}er",
+    "emmerder":f"en{SCHTROUMPF_STR}er",
+    "rammener":f"re{SCHTROUMPF_STR}er",
+    "recommencer":f"re{SCHTROUMPF_STR}er",
+    "redonner":f"re{SCHTROUMPF_STR}er",
+    "regagner":f"re{SCHTROUMPF_STR}er",
+    "remettre":f"re{SCHTROUMPF_STR}er",
+    "retourner":f"re{SCHTROUMPF_STR}er",
+    "revenir":f"re{SCHTROUMPF_STR}er",
+    "retrouver":f"re{SCHTROUMPF_STR}er"}
+
+SPECIAL_SMURF_INTERJ: Dict[str, str] = {
+    "atchoum":f"a{SCHTROUMPF_STR}",
+    "cocorico":f"cocori{SCHTROUMPF_STR}",
+    "bonjour":f"bon{SCHTROUMPF_STR}",
+    "sapristi":f"sapri{SCHTROUMPF_STR}"}
 
 def conjugate_1st_group_verb(radical: str,
                              tense: FrenchTense,
@@ -68,8 +107,6 @@ class BasicPOS(Enum):
     INTERJECTION = auto()
     OTHER = auto()
 
-
-SCHTROUMPF_STR="schtroumpf"
 UNTOUCHED_VERB_PREFIXS = re.compile(r"^(dé|re|en)")
 
 Non_smurf_verbs = {"être", "avoir", "pouvoir", "devoir", "falloir"}
@@ -115,21 +152,24 @@ class FrenchWord:
                 or
                 pos == BasicPOS.INTERJECTION)
 
-    def to_smurf(self) -> str:
+    def word_to_smurf(self, word_compound_index=-1) -> str:
         pos = self.pos()
         if not self.can_smurf():
             return self.text()
 
         if pos == BasicPOS.NOUN:
-            m = re.search(r"tion(s)?$", self.text())
-            if m:
-                new_text = self.text()[:m.span()[0]] + SCHTROUMPF_STR
+            if self.lemma() in SPECIAL_SMURF_NOUNS:
+                new_text = SPECIAL_SMURF_NOUNS[self.lemma()]
             else:
-                #m = re.search(r"teur(s)?$", self.text())
-                #if False and m:
-                #    new_text = self.text()[:m.span()[0]] + SCHTROUMPF_STR + "eur"
-                #else:
-                new_text = SCHTROUMPF_STR
+                m = re.search(r"tion(s)?$", self.text())
+                if m:
+                    new_text = self.text()[:m.span()[0]] + SCHTROUMPF_STR
+                else:
+                    #m = re.search(r"teur(s)?$", self.text())
+                    #if False and m:
+                    #    new_text = self.text()[:m.span()[0]] + SCHTROUMPF_STR + "eur"
+                    #else:
+                    new_text = SCHTROUMPF_STR
 
             new_text += self.plural_suffix()
         elif pos == BasicPOS.VERB:
@@ -137,7 +177,10 @@ class FrenchWord:
             #m = re.match(UNTOUCHED_VERB_PREFIXS, self.text())
             #if m:
             #    prefix = self.text()[:m.span()[1]]
-            new_text = prefix + conjugate_1st_group_verb(SCHTROUMPF_STR,
+            verb_stem = SCHTROUMPF_STR
+            if self.lemma() in SPECIAL_SMURF_VERBS:
+                verb_stem = SPECIAL_SMURF_VERBS[self.lemma()][:-2]
+            new_text = prefix + conjugate_1st_group_verb(verb_stem,
                                                          self.tense(),
                                                          self.person(),
                                                          self.is_feminine(),
@@ -145,11 +188,18 @@ class FrenchWord:
         elif pos == BasicPOS.ADVERB:
             new_text = SCHTROUMPF_STR + "ement"
         elif pos == BasicPOS.ADJECTIVE:
-            new_text = SCHTROUMPF_STR \
-                       + ("ant" if self.text().endswith("ant") or self.text().endswith("ants") else "") \
-                       + self.plural_suffix()
+            if self.lemma() in SPECIAL_SMURF_ADJECTIVES:
+                new_text = SPECIAL_SMURF_ADJECTIVES[self.lemma()]
+            else:
+                new_text = SCHTROUMPF_STR \
+                           + ("ant" if self.text().endswith("ant") or self.text().endswith("ants") else "")
+
+            new_text += self.plural_suffix()
         elif pos == BasicPOS.INTERJECTION:
-            new_text = SCHTROUMPF_STR
+            if self.text() in SPECIAL_SMURF_INTERJ:
+                new_text = SPECIAL_SMURF_INTERJ[self.text()]
+            else:
+                new_text = SCHTROUMPF_STR
         else:
             new_text = self.text()
 
@@ -160,32 +210,48 @@ class FrenchWord:
 
         return new_text
 
-@dataclass
-class FrenchWordTest(FrenchWord):
-    _text: str
-    _pos: BasicPOS
-    _tense: FrenchTense = FrenchTense.NONE
-    _person: int = 3
-    _plural: bool = False
-    _feminine: bool = False
+#Based on Stanza structures:
+#- doc must contains a list of sentences in .sentences
+#- each sentence must contain a list of tokens
+#- each token must provide start_char and end_char methods
 
-    def text(self) -> str:
-        return self._text
+WHOLE_WORD=-1
+def text_to_smurf(text, nlp, adapter_cls, smurf_indexes: Optional[Dict[Tuple[int, int], int]] = None):
+    doc = nlp(text)
+    smurf_text = ""
+    last_token_end_char = 0
+    for s, sentence in enumerate(doc.sentences):
+        for n, token in enumerate(sentence.tokens):
+            smurf_text += text[last_token_end_char:token.start_char]
+            last_token_end_char = token.end_char
+            if smurf_indexes is None or (s, n) in smurf_indexes:
+                word = adapter_cls(token)
+                #Handle compound words
+                index_in_compound_word = WHOLE_WORD
+                if smurf_indexes:
+                    index_in_compound_word = smurf_indexes[(s,n)]
 
-    def pos(self) -> BasicPOS:
-        return self._pos
+                if index_in_compound_word == WHOLE_WORD:
+                    smurf_word = word.word_to_smurf()
+                else:
+                    parts = word.text().split("-")
+                    subtext = parts[index_in_compound_word]
+                    subword = adapter_cls(nlp(subtext).sentences[0].tokens[0])
+                    smurf_subword = subword.word_to_smurf()
+                    parts[index_in_compound_word] = smurf_subword
+                    smurf_word = "-".join(parts)
 
-    def tense(self) -> FrenchTense:
-        return self._tense
+                # Quick and dirty fix of apostrophe (') issues (me vs m' etc.)
+                # Proper handling should use linguistic features
+                # (e.g. "l'alouette" = "la alouette" while "l'oiseau" = "le oiseau")
+                if smurf_text.lower().endswith("'") and not re.match("[aeiou]", smurf_word.lower()):
+                    smurf_text = smurf_text[:-1] + "e "
+                smurf_text += smurf_word
+            else:
+                smurf_text += text[token.start_char:last_token_end_char]
+    smurf_text += text[last_token_end_char:]
 
-    def person(self) -> int:  # 1..3
-        return self._person
-
-    def is_feminine(self) -> bool:
-        return self._feminine
-
-    def is_plural(self) -> bool:
-        return self._plural
+    return smurf_text
 
 
 UTag_to_BasicPOS: Dict[str, BasicPOS] = {"NOUN": BasicPOS.NOUN,
@@ -283,26 +349,6 @@ class FrenchWordSpacy(FrenchWord):
     def lemma(self) -> str:
         return self.token.lemma_
 
-def smurf_spacy(text: str, smurf_indexes: Optional[List[int]] = None):
-    global Spacy_fr_model
-    if Spacy_fr_model is None:
-        snlp = stanza.Pipeline(lang="fr")
-        Spacy_fr_model = stanza.StanzaLanguage(snlp)
-    doc = Spacy_fr_model(text)
-    smurf_text = ""
-    last_token_end_idx = 0
-    for n, token in enumerate(doc):
-        smurf_text += text[last_token_end_idx:token.idx]
-        last_token_end_idx = token.idx + len(token)
-        if smurf_indexes is None or n in smurf_indexes:
-            smurf_word = FrenchWordSpacy(token).to_smurf()
-            smurf_text += smurf_word
-        else:
-            smurf_text += text[token.idx:last_token_end_idx]
-    smurf_text += text[last_token_end_idx:]
-
-    return smurf_text
-
 from stanza.models.common.doc import Token as StanzaToken, Document as StanzaDoc
 
 class FrenchWordStanza(FrenchWord):
@@ -356,28 +402,9 @@ def get_fr_model():
         Stanza_fr_model = stanza.Pipeline(lang='fr', processors='tokenize,mwt,pos,lemma')
     return Stanza_fr_model
 
-def smurf_stanza(text: str, smurf_indexes: Optional[Set[Tuple[int, int]]] = None):
+def smurf_stanza(text: str, smurf_indexes: Optional[Dict[Tuple[int, int], int]] = None) -> str:
     nlp = get_fr_model()
-    doc: StanzaDoc = nlp(text)
-    smurf_text = ""
-    last_token_end_char = 0
-    for s, sentence in enumerate(doc.sentences):
-        for n, token in enumerate(sentence.tokens):
-            smurf_text += text[last_token_end_char:token.start_char]
-            last_token_end_char = token.end_char
-            if smurf_indexes is None or (s, n) in smurf_indexes:
-                smurf_word = FrenchWordStanza(token).to_smurf()
-                # Quick and dirty fix of apostrophe (') issues (me vs m' etc.)
-                # Proper handling should use linguistic features
-                # (e.g. "l'alouette" = "la alouette" while "l'oiseau" = "le oiseau")
-                if smurf_text.lower().endswith("'") and not re.match("[aeiou]", smurf_word.lower()):
-                    smurf_text = smurf_text[:-1] + "e "
-                smurf_text += smurf_word
-            else:
-                smurf_text += text[token.start_char:last_token_end_char]
-    smurf_text += text[last_token_end_char:]
-
-    return smurf_text
+    return text_to_smurf(text, nlp, FrenchWordStanza, smurf_indexes)
 
 def test_smurf_dataset(data_dir="./data"):
     files = [os.path.join(data_dir, file) for file in os.listdir(data_dir) if file.endswith(".txt")]
@@ -393,11 +420,17 @@ def test_smurf_dataset(data_dir="./data"):
         nbr_of_examples += 1
         doc_smurf = nlp(example["smurf"])
         doc_fr = nlp(example["french"])
-        smurf_indexes = set()
+        smurf_indexes = {}
         for s, sentence in enumerate(doc_smurf.sentences):
             for n, token in enumerate(sentence.tokens):
                 if SCHTROUMPF_STR in token.text.lower():
-                    smurf_indexes.add((s, n))
+                    if "-" in token.text:
+                        for i, subword in enumerate(token.text.split("-")):
+                            if SCHTROUMPF_STR in subword:
+                                smurf_indexes[(s, n)] = i
+                                break
+                    else:
+                        smurf_indexes[(s, n)] = WHOLE_WORD
 
         to_smurf = smurf_stanza(doc_fr.text, smurf_indexes)
         if to_smurf == doc_smurf.text:
