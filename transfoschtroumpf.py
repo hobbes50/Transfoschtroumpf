@@ -267,9 +267,9 @@ def train_transmoschtroumpf():
 
     training_args = TrainingArguments(
         output_dir='./results',          # output directory
-        num_train_epochs=100,              # total # of training epochs
-        per_device_train_batch_size=16,  # batch size per device during training
-        per_device_eval_batch_size=64,   # batch size for evaluation
+        num_train_epochs=1,              # total # of training epochs
+        per_device_train_batch_size=8,  # batch size per device during training
+        per_device_eval_batch_size=16,   # batch size for evaluation
         warmup_steps=256,                # number of warmup steps for learning rate scheduler
         weight_decay=0.01,               # strength of weight decay
         logging_steps=10,
@@ -286,10 +286,10 @@ def train_transmoschtroumpf():
 
     print("Training...")
     trainer.train()
-    print("Evaluating...")
-    print(trainer.evaluate())
     print("Saving model...")
     model.save_pretrained("saved_models")
+    print("Evaluating...")
+    print(trainer.evaluate())
 
 if __name__ == '__main__':
     train_transmoschtroumpf()
