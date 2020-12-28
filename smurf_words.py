@@ -291,7 +291,7 @@ def ufeats_to_fr_tense(features: Dict[str, str]) -> FrenchTense:
         if tense == "Pres":
             return FrenchTense.PRESENT
         elif tense == "Imp":
-            return FrenchTense.SUBJ_IMPARFAIT
+            return FrenchTense.IMPARFAIT
         elif tense == "Past":
             return FrenchTense.PASSE_SIMPLE
         elif tense == "Fut":
