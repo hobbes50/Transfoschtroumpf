@@ -1,4 +1,5 @@
 from enum import Enum, auto
+import random
 from typing import Dict, List, Optional, Set, Tuple
 from dataclasses import dataclass
 import spacy
@@ -216,8 +217,8 @@ class FrenchWord:
 #- each token must provide start_char and end_char methods
 
 WHOLE_WORD=-1
-def text_to_smurf(text, nlp, adapter_cls, smurf_indexes: Optional[Dict[Tuple[int, int], int]] = None):
-    doc = nlp(text)
+def doc_to_smurf(doc, nlp, adapter_cls, smurf_indexes: Optional[Dict[Tuple[int, int], int]] = None):
+    text = doc.text
     smurf_text = ""
     last_token_end_char = 0
     for s, sentence in enumerate(doc.sentences):
@@ -244,7 +245,7 @@ def text_to_smurf(text, nlp, adapter_cls, smurf_indexes: Optional[Dict[Tuple[int
                 # Quick and dirty fix of apostrophe (') issues (me vs m' etc.)
                 # Proper handling should use linguistic features
                 # (e.g. "l'alouette" = "la alouette" while "l'oiseau" = "le oiseau")
-                if smurf_text.lower().endswith("'") and not re.match("[aeiou]", smurf_word.lower()):
+                if re.search("['’]$", smurf_text) and not re.match("[aeiou]", smurf_word.lower()):
                     smurf_text = smurf_text[:-1] + "e "
                 smurf_text += smurf_word
             else:
@@ -404,15 +405,18 @@ def get_fr_model():
 
 def smurf_stanza(text: str, smurf_indexes: Optional[Dict[Tuple[int, int], int]] = None) -> str:
     nlp = get_fr_model()
-    return text_to_smurf(text, nlp, FrenchWordStanza, smurf_indexes)
+    return doc_to_smurf(nlp(text), nlp, FrenchWordStanza, smurf_indexes)
+
+def load_smurf_dataset(data_dir="./data"):
+    files = [os.path.join(data_dir, file) for file in os.listdir(data_dir) if file.endswith(".txt")]
+    return load_dataset('csv',
+                        data_files=files,
+                        column_names=["smurf", "french"],
+                        delimiter=";",
+                        quote_char=None)
 
 def test_smurf_dataset(data_dir="./data"):
-    files = [os.path.join(data_dir, file) for file in os.listdir(data_dir) if file.endswith(".txt")]
-    dataset = load_dataset('csv',
-                           data_files=files,
-                           column_names=["smurf", "french"],
-                           delimiter=";",
-                           quote_char=None)
+    dataset = load_smurf_dataset()
     nlp = stanza.Pipeline(lang='fr', processors="tokenize")
     nbr_of_examples = 0
     nbr_of_correct_examples = 0
@@ -445,4 +449,50 @@ def test_smurf_dataset(data_dir="./data"):
     print(f"\nTotal correct = {nbr_of_correct_examples}/{nbr_of_examples} "
           f"({nbr_of_correct_examples/nbr_of_examples}%)")
 
-test_smurf_dataset()
+def smurf_dataset_stats(data_dir="./data"):
+    dataset = load_smurf_dataset()
+    nlp = stanza.Pipeline(lang='fr', processors="tokenize,mwt,pos,lemma")
+    nbr_of_smurf_words = 0
+    nbr_of_can_smurf_words = 0
+    nbr_of_words = 0
+    for example in dataset["train"]:
+        doc_smurf = nlp(example["smurf"])
+        for sentence in doc_smurf.sentences:
+            for token in sentence.tokens:
+                nbr_of_words += 1
+                if SCHTROUMPF_STR in token.text.lower():
+                    nbr_of_smurf_words += 1
+                elif FrenchWordStanza(token).can_smurf():
+                    nbr_of_can_smurf_words += 1
+
+    print(f"\nTotal words = {nbr_of_words}, smurf words = {nbr_of_smurf_words} ({nbr_of_smurf_words/nbr_of_words}%), "
+          f"can_smurf = {nbr_of_can_smurf_words}, "
+          f"smurf/(smurf + can) = {nbr_of_smurf_words/(nbr_of_can_smurf_words + nbr_of_smurf_words)}")
+
+
+random.seed(42)
+SMURF_VS_CAN_SMURF_RATIO=0.33
+def random_smurf(text: str, nlp=None):
+    if nlp is None:
+        nlp = stanza.Pipeline(lang='fr', processors="tokenize,mwt,pos,lemma")
+    doc = nlp(text)
+
+    smurf_indexes = {}
+    for s, sentence in enumerate(doc.sentences):
+        for n, token in enumerate(sentence.tokens):
+            token_smurf = FrenchWordStanza(token)
+            if token_smurf.can_smurf() and random.random() <= SMURF_VS_CAN_SMURF_RATIO:
+                if "-" in token.text and token_smurf.pos() == BasicPOS.NOUN:
+                    subwords = token.text.split("-")
+                    can_smurf_subwords = []
+                    for i, subword in enumerate(subwords):
+                        if FrenchWordStanza(nlp(subword).sentences[0].tokens[0]).can_smurf():
+                            can_smurf_subwords.append(i)
+                    if can_smurf_subwords:
+                        smurf_indexes[(s, n)] = random.choice(can_smurf_subwords)
+                    else:
+                        smurf_indexes[(s, n)] = WHOLE_WORD
+                else:
+                    smurf_indexes[(s, n)] = WHOLE_WORD
+
+    return doc_to_smurf(doc, nlp, FrenchWordStanza, smurf_indexes)
