@@ -496,3 +496,32 @@ def random_smurf(text: str, nlp=None):
                     smurf_indexes[(s, n)] = WHOLE_WORD
 
     return doc_to_smurf(doc, nlp, FrenchWordStanza, smurf_indexes)
+
+OSCAR_SMURF_CSV_SEPARATOR="ༀ"
+def convert_oscar_file(filepath):
+    nlp = stanza.Pipeline(lang='fr', processors="tokenize,mwt,pos,lemma")
+    nbr_of_lines = 0
+    with open(filepath, 'r') as input_file:
+        nbr_of_lines = 0
+        while (input_file.readline()):
+            nbr_of_lines += 1
+    print(f"{nbr_of_lines} lines to process in {filepath}")
+
+    with open(filepath, 'r') as input_file:
+        output_filename = os.path.join(os.path.dirname(filepath),
+                                       "smurf_" + os.path.basename(filepath))
+        line_number = 0
+        with open(output_filename, 'w') as output_file:
+            while True:
+                line = input_file.readline().rstrip('\n')
+                if not line:
+                    break
+                line_number += 1
+                if (line_number % 1000) == 0:
+                    print(f"{line_number} lines processed {100*line_number/nbr_of_lines}%")
+                try:
+                    smurf_line = random_smurf(line, nlp)
+                except:
+                    print(f"ERROR converting sentence {line}")
+                    continue
+                output_file.write(line + OSCAR_SMURF_CSV_SEPARATOR + smurf_line + "\n")
