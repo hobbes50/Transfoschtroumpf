@@ -243,11 +243,15 @@ def doc_to_smurf(doc, nlp, adapter_cls, smurf_indexes: Optional[Dict[Tuple[int, 
                     parts[index_in_compound_word] = smurf_subword
                     smurf_word = "-".join(parts)
 
-                # Quick and dirty fix of apostrophe (') issues (me vs m' etc.)
-                # Proper handling should use linguistic features
+                # Handling apostrophes (') issues (me vs m' etc.)
                 # (e.g. "l'alouette" = "la alouette" while "l'oiseau" = "le oiseau")
                 if re.search("['’]$", smurf_text) and not re.match("[aeiou]", smurf_word.lower()):
-                    smurf_text = smurf_text[:-1] + "e "
+                    suffix = "e "
+                    if n > 0:
+                        previous_token = sentence.tokens[n - 1]
+                        if adapter_cls(previous_token).is_feminine():
+                            suffix = "a "
+                    smurf_text = smurf_text[:-1] + suffix
                 smurf_text += smurf_word
             else:
                 smurf_text += text[token.start_char:last_token_end_char]
