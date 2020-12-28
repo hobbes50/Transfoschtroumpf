@@ -49,6 +49,7 @@ SPECIAL_SMURF_NOUNS: Dict[str, str] = {
     "parapluie":f"para{SCHTROUMPF_STR}",
     "pistolet":f"pisto{SCHTROUMPF_STR}",
     "pneumonie":f"pneumo{SCHTROUMPF_STR}",
+    "question":f"{SCHTROUMPF_STR}", #To prevent "quesschtrompf"
     "soporifique":f"sopori{SCHTROUMPF_STR}",
     "symphonie":f"{SCHTROUMPF_STR}onie",
     "trombone":f"{SCHTROUMPF_STR}bone"}
