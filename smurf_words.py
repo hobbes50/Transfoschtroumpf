@@ -3,6 +3,8 @@ import random
 from typing import Dict, List, Optional, Set, Tuple, Callable, Any
 from dataclasses import dataclass
 import spacy
+import spacy_udpipe
+import ufal.udpipe as udpipe
 from spacy.tokens import Token as SpacyToken, Doc as SpacyDoc
 from datasets import load_dataset
 import stanza
@@ -497,6 +499,124 @@ class StanzaDocAdapter(DocAdapter):
     def text(self):
         return self.doc.text
 
+@dataclass()
+class UDPipeDoc:
+    text: str
+    sentences: List[udpipe.Sentence]
+
+def udpipe_process_text(model: udpipe.Model, text: str):
+    tok = model.newTokenizer(model.DEFAULT)
+    tok.setText(text)
+
+    sentences: List[udpipe.Sentence] = []
+    sentence = udpipe.Sentence()
+    error = udpipe.ProcessingError()
+    while tok.nextSentence(sentence, error):
+        sentences.append(sentence)
+        sentence = udpipe.Sentence()
+    for sentence in sentences:
+        model.tag(sentence, model.DEFAULT, error)
+
+    return UDPipeDoc(text, sentences)
+
+class UDPipeTokenAdapter(TokenAdapter):
+    def __init__(self, token: udpipe.Word, char_offset=0):
+        self.token = token
+        self.upos = token.upostag
+        self._start_char = char_offset
+        features = token.feats
+        if features:
+            self.features = dict([x.split("=") for x in features.split("|") if "=" in x])
+        else:
+            self.features = {}
+
+    @property
+    def text(self) -> str:
+        return self.token.form
+
+    @property
+    def pos(self) -> BasicPOS:
+        try:
+            return UTag_to_BasicPOS[self.upos]
+        except KeyError:
+            return BasicPOS.OTHER
+
+    @property
+    def tense(self) -> FrenchTense:
+        return ufeats_to_fr_tense(self.features)
+
+    @property
+    def person(self) -> int:  # 1..3
+        try:
+            return int(self.features["Person"])
+        except (KeyError, ValueError):
+            return 0
+
+    def is_feminine(self) -> bool:
+        try:
+            return self.features["Gender"] == "Fem"
+        except KeyError:
+            return False
+
+    def is_plural(self) -> bool:
+        try:
+            return self.features["Number"] == "Plur"
+        except KeyError:
+            return False
+
+    @property
+    def lemma(self) -> str:
+        return self.token.lemma
+
+    @property
+    def start_char(self) -> int:
+        return self._start_char
+
+    @property
+    def end_char(self) -> int:
+        return self._start_char + len(self.token.form)
+
+class UDPipeDocAdapter(DocAdapter):
+    def __init__(self, doc: UDPipeDoc):
+        self.doc = doc
+        self._sentences = []
+        offset = 0
+        for sentence in doc.sentences:
+            current_sentence = SentenceAdapter([])
+            self._sentences.append(current_sentence)
+            i = 0
+            multi_word_iter = iter(sentence.multiwordTokens)
+            def get_next_multi_word():
+                try:
+                    return next(multi_word_iter)
+                except StopIteration:
+                    return None
+
+            next_multi_word = get_next_multi_word()
+            i = 1  # Skip "root" word
+            while i < len(sentence.words):
+                word = sentence.words[i]
+                if next_multi_word and i == next_multi_word.idFirst:
+                    token = next_multi_word
+                    #  Just replace multi-words by their first word for tagging, they never can_smurf() in French
+                    i = next_multi_word.idLast + 1
+                    next_multi_word = get_next_multi_word()
+                else:
+                    token = word
+                    i += 1
+
+                offset += len(token.getSpacesBefore())
+                current_sentence.tokens.append(UDPipeTokenAdapter(word, offset))
+                offset += len(token.form) + len(token.getSpacesAfter())
+
+    @property
+    def sentences(self):
+        return self._sentences
+
+    @property
+    def text(self):
+        return self.doc.text
+
 
 Cached_fr_models: Dict[str, Any] = {}
 def get_fr_nlp_model(name: str):
@@ -509,8 +629,13 @@ def get_fr_nlp_model(name: str):
             model = stanza.Pipeline(lang='fr', processors='tokenize,mwt,pos,lemma')
         elif name == "spacy" or name == "spacy/large":
             model = spacy.load("fr_core_news_lg")
-        elif name == "spacy" or name == "spacy/medium":
+        elif name == "spacy/medium":
             model = spacy.load("fr_core_news_md")
+        elif name == "spacy-udpipe":
+            model = spacy_udpipe.load("fr")
+        elif name == "udpipe":
+            udpipe_model = udpipe.Model.load("./french-gsd-ud-2.5-191206.udpipe")
+            model = lambda text:udpipe_process_text(udpipe_model, text)
 
         if model is None:
             raise Exception(f"ERROR: model '{name}' not found")
@@ -523,6 +648,8 @@ def get_doc_adapter_class(model_name: str):
         return StanzaDocAdapter
     elif model_name.startswith("spacy"):
         return SpacyDocAdapter
+    elif model_name.startswith("udpipe"):
+        return UDPipeDocAdapter
     else:
         raise Exception(f"ERROR: unknown model '{model_name}'")
 
