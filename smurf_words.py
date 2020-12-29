@@ -1,11 +1,13 @@
 from enum import Enum, auto
 import random
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple, Callable, Any
 from dataclasses import dataclass
 import spacy
-from spacy.tokens import Token as SpacyToken
+from spacy.tokens import Token as SpacyToken, Doc as SpacyDoc
 from datasets import load_dataset
 import stanza
+from stanza.models.common.doc import Token as StanzaToken, Document as StanzaDoc
+import time
 import re
 import sys
 import os
@@ -113,16 +115,21 @@ UNTOUCHED_VERB_PREFIXS = re.compile(r"^(dé|re|en)")
 
 Non_smurf_verbs = {"être", "avoir", "pouvoir", "devoir", "falloir"}
 
-class FrenchWord:
+# Bases classes used by "to_smurf" functions to ba able to change backing NLP library easily (spacy, stanza..)
+class TokenAdapter:
+    @property
     def text(self) -> str:
         raise NotImplementedError()
 
+    @property
     def pos(self) -> BasicPOS:
         raise NotImplementedError()
 
+    @property
     def tense(self) -> FrenchTense:
         raise NotImplementedError()
 
+    @property
     def person(self) -> int:  # 1..3
         raise NotImplementedError()
 
@@ -135,37 +142,46 @@ class FrenchWord:
     def is_feminine(self) -> bool:
         raise NotImplementedError()
 
+    @property
     def lemma(self) -> str:
+        raise NotImplementedError()
+
+    @property
+    def start_char(self) -> int:
+        raise NotImplementedError()
+
+    @property
+    def end_char(self) -> int:
         raise NotImplementedError()
 
     def can_smurf(self) -> bool:
         # Already "smurfed" words must be left untouched (often proper nouns, e.g. "Grand Schtroumpf")
-        if SCHTROUMPF_STR in self.text().lower():
+        if SCHTROUMPF_STR in self.text.lower():
             return False
 
-        pos = self.pos()
+        pos = self.pos
         return (pos == BasicPOS.NOUN
                 or
                 pos == BasicPOS.ADJECTIVE
                 or
-                pos == BasicPOS.ADVERB and self.text().endswith("ment")
+                pos == BasicPOS.ADVERB and self.text.endswith("ment")
                 or
-                pos == BasicPOS.VERB and self.lemma() not in Non_smurf_verbs
+                pos == BasicPOS.VERB and self.lemma not in Non_smurf_verbs
                 or
                 pos == BasicPOS.INTERJECTION)
 
-    def word_to_smurf(self, word_compound_index=-1) -> str:
-        pos = self.pos()
+    def to_smurf(self, word_compound_index=-1) -> str:
+        pos = self.pos
         if not self.can_smurf():
-            return self.text()
+            return self.text
 
         if pos == BasicPOS.NOUN:
-            if self.lemma() in SPECIAL_SMURF_NOUNS:
-                new_text = SPECIAL_SMURF_NOUNS[self.lemma()]
+            if self.lemma in SPECIAL_SMURF_NOUNS:
+                new_text = SPECIAL_SMURF_NOUNS[self.lemma]
             else:
-                m = re.search(r"tion(s)?$", self.text())
+                m = re.search(r"tion(s)?$", self.text)
                 if m:
-                    new_text = self.text()[:m.span()[0]] + SCHTROUMPF_STR
+                    new_text = self.text[:m.span()[0]] + SCHTROUMPF_STR
                 else:
                     #m = re.search(r"teur(s)?$", self.text())
                     #if False and m:
@@ -180,45 +196,61 @@ class FrenchWord:
             #if m:
             #    prefix = self.text()[:m.span()[1]]
             verb_stem = SCHTROUMPF_STR
-            if self.lemma() in SPECIAL_SMURF_VERBS:
-                verb_stem = SPECIAL_SMURF_VERBS[self.lemma()][:-2]
+            if self.lemma in SPECIAL_SMURF_VERBS:
+                verb_stem = SPECIAL_SMURF_VERBS[self.lemma][:-2]
             new_text = prefix + conjugate_1st_group_verb(verb_stem,
-                                                         self.tense(),
-                                                         self.person(),
+                                                         self.tense,
+                                                         self.person,
                                                          self.is_feminine(),
                                                          self.is_plural())
         elif pos == BasicPOS.ADVERB:
             new_text = SCHTROUMPF_STR + "ement"
         elif pos == BasicPOS.ADJECTIVE:
-            if self.lemma() in SPECIAL_SMURF_ADJECTIVES:
-                new_text = SPECIAL_SMURF_ADJECTIVES[self.lemma()]
+            if self.lemma in SPECIAL_SMURF_ADJECTIVES:
+                new_text = SPECIAL_SMURF_ADJECTIVES[self.lemma]
             else:
                 new_text = SCHTROUMPF_STR \
-                           + ("ant" if self.text().endswith("ant") or self.text().endswith("ants") else "")
+                           + ("ant" if self.text.endswith("ant") or self.text.endswith("ants") else "")
 
             new_text += self.plural_suffix()
         elif pos == BasicPOS.INTERJECTION:
-            if self.text() in SPECIAL_SMURF_INTERJ:
-                new_text = SPECIAL_SMURF_INTERJ[self.text()]
+            if self.text in SPECIAL_SMURF_INTERJ:
+                new_text = SPECIAL_SMURF_INTERJ[self.text]
             else:
                 new_text = SCHTROUMPF_STR
         else:
-            new_text = self.text()
+            new_text = self.text
 
-        if self.text() and self.text().isupper():
+        if self.text and self.text.isupper():
             new_text = new_text.upper()
-        elif self.text() and self.text()[0].isupper():
+        elif self.text and self.text[0].isupper():
             new_text = new_text[0].upper() + (new_text[1:] if len(new_text) > 1 else "")
 
         return new_text
 
-#Based on Stanza structures:
-#- doc must contains a list of sentences in .sentences
-#- each sentence must contain a list of tokens
-#- each token must provide start_char and end_char methods
+class SentenceAdapter:
+    def __init__(self, tokens):
+        self._tokens = tokens
+
+    @property
+    def tokens(self) -> List[TokenAdapter]:
+        return self._tokens
+
+class DocAdapter:
+    @property
+    def text(self) -> str:
+        raise NotImplementedError()
+
+    @property
+    def sentences(self) -> List[SentenceAdapter]:
+        raise NotImplementedError()
+
 
 WHOLE_WORD=-1
-def doc_to_smurf(doc, nlp, adapter_cls, smurf_indexes: Optional[Dict[Tuple[int, int], int]] = None):
+def doc_to_smurf(doc : DocAdapter,
+                 nlp,
+                 adapter_doc_cls: Callable[[Any], DocAdapter],
+                 smurf_indexes: Optional[Dict[Tuple[int, int], int]] = None):
     text = doc.text
     smurf_text = ""
     last_token_end_char = 0
@@ -227,19 +259,18 @@ def doc_to_smurf(doc, nlp, adapter_cls, smurf_indexes: Optional[Dict[Tuple[int, 
             smurf_text += text[last_token_end_char:token.start_char]
             last_token_end_char = token.end_char
             if smurf_indexes is None or (s, n) in smurf_indexes:
-                word = adapter_cls(token)
                 #Handle compound words
                 index_in_compound_word = WHOLE_WORD
                 if smurf_indexes:
                     index_in_compound_word = smurf_indexes[(s,n)]
 
                 if index_in_compound_word == WHOLE_WORD:
-                    smurf_word = word.word_to_smurf()
+                    smurf_word = token.to_smurf()
                 else:
-                    parts = word.text().split("-")
+                    parts = token.text.split("-")
                     subtext = parts[index_in_compound_word]
-                    subword = adapter_cls(nlp(subtext).sentences[0].tokens[0])
-                    smurf_subword = subword.word_to_smurf()
+                    subtoken = adapter_doc_cls(nlp(subtext)).sentences[0].tokens[0]
+                    smurf_subword = subtoken.to_smurf()
                     parts[index_in_compound_word] = smurf_subword
                     smurf_word = "-".join(parts)
 
@@ -249,7 +280,7 @@ def doc_to_smurf(doc, nlp, adapter_cls, smurf_indexes: Optional[Dict[Tuple[int, 
                     suffix = "e "
                     if n > 0:
                         previous_token = sentence.tokens[n - 1]
-                        if adapter_cls(previous_token).is_feminine():
+                        if previous_token.is_feminine():
                             suffix = "a "
                     smurf_text = smurf_text[:-1] + suffix
                 smurf_text += smurf_word
@@ -266,6 +297,7 @@ UTag_to_BasicPOS: Dict[str, BasicPOS] = {"NOUN": BasicPOS.NOUN,
                                          "AUX": BasicPOS.AUXILIARY,
                                          "VERB": BasicPOS.VERB,
                                          "INTJ": BasicPOS.INTERJECTION}
+
 
 def ufeats_to_fr_tense(features: Dict[str, str]) -> FrenchTense:
     try:
@@ -315,25 +347,29 @@ def ufeats_to_fr_tense(features: Dict[str, str]) -> FrenchTense:
     return FrenchTense.NONE
 
 
-class FrenchWordSpacy(FrenchWord):
+class SpacyTokenAdapter(TokenAdapter):
     def __init__(self, token: SpacyToken):
         self.token = token
         features = token.tag_.split("__")
         self.spacy_tag = token.pos_
         self.features = dict([x.split("=") for x in features[-1].split("|") if "=" in x])
 
+    @property
     def text(self) -> str:
         return self.token.text
 
+    @property
     def pos(self) -> BasicPOS:
         try:
             return UTag_to_BasicPOS[self.spacy_tag]
         except KeyError:
             return BasicPOS.OTHER
 
+    @property
     def tense(self) -> FrenchTense:
         return ufeats_to_fr_tense(self.features)
 
+    @property
     def person(self) -> int:  # 1..3
         try:
             return int(self.features["Person"])
@@ -352,12 +388,41 @@ class FrenchWordSpacy(FrenchWord):
         except KeyError:
             return False
 
+    @property
     def lemma(self) -> str:
         return self.token.lemma_
 
-from stanza.models.common.doc import Token as StanzaToken, Document as StanzaDoc
+    @property
+    def start_char(self) -> int:
+        return self.token.idx
 
-class FrenchWordStanza(FrenchWord):
+    @property
+    def end_char(self) -> int:
+        return self.token.idx + len(self.token)
+
+
+class SpacyDocAdapter(DocAdapter):
+
+    def __init__(self, doc: SpacyDoc):
+        self.doc = doc
+        self._sentences = []
+        current_sentence = None
+        for token in doc:
+            if token.is_sent_start or current_sentence is None:
+                current_sentence = SentenceAdapter([])
+                self._sentences.append(current_sentence)
+            current_sentence.tokens.append(SpacyTokenAdapter(token))
+
+    @property
+    def sentences(self):
+        return self._sentences
+
+    @property
+    def text(self):
+        return self.doc.text
+
+
+class StanzaTokenAdapter(TokenAdapter):
     def __init__(self, token: StanzaToken):
         self.token = token
         self.upos = token.words[0].upos
@@ -367,18 +432,22 @@ class FrenchWordStanza(FrenchWord):
         else:
             self.features = {}
 
+    @property
     def text(self) -> str:
         return self.token.text
 
+    @property
     def pos(self) -> BasicPOS:
         try:
             return UTag_to_BasicPOS[self.upos]
         except KeyError:
             return BasicPOS.OTHER
 
+    @property
     def tense(self) -> FrenchTense:
         return ufeats_to_fr_tense(self.features)
 
+    @property
     def person(self) -> int:  # 1..3
         try:
             return int(self.features["Person"])
@@ -397,20 +466,69 @@ class FrenchWordStanza(FrenchWord):
         except KeyError:
             return False
 
+    @property
     def lemma(self) -> str:
         return self.token.words[0].lemma
 
+    @property
+    def start_char(self) -> int:
+        return self.token.start_char
 
-Stanza_fr_model = None
-def get_fr_model():
-    global Stanza_fr_model
-    if Stanza_fr_model is None:
-        Stanza_fr_model = stanza.Pipeline(lang='fr', processors='tokenize,mwt,pos,lemma')
-    return Stanza_fr_model
+    @property
+    def end_char(self) -> int:
+        return self.token.end_char
+
+
+class StanzaDocAdapter(DocAdapter):
+    def __init__(self, doc: StanzaDoc):
+        self.doc = doc
+        self._sentences = []
+        for sentence in doc.sentences:
+            current_sentence = SentenceAdapter([])
+            self._sentences.append(current_sentence)
+            for token in sentence.tokens:
+                current_sentence.tokens.append(StanzaTokenAdapter(token))
+
+    @property
+    def sentences(self):
+        return self._sentences
+
+    @property
+    def text(self):
+        return self.doc.text
+
+
+Cached_fr_models: Dict[str, Any] = {}
+def get_fr_nlp_model(name: str):
+    global Cached_fr_models
+    try:
+        return Cached_fr_models[name]
+    except KeyError:
+        model = None
+        if name == "stanza":
+            model = stanza.Pipeline(lang='fr', processors='tokenize,mwt,pos,lemma')
+        elif name == "spacy" or name == "spacy/large":
+            model = spacy.load("fr_core_news_lg")
+        elif name == "spacy" or name == "spacy/medium":
+            model = spacy.load("fr_core_news_md")
+
+        if model is None:
+            raise Exception(f"ERROR: model '{name}' not found")
+        Cached_fr_models[name] = model
+
+        return model
+
+def get_doc_adapter_class(model_name: str):
+    if model_name.startswith("stanza"):
+        return StanzaDocAdapter
+    elif model_name.startswith("spacy"):
+        return SpacyDocAdapter
+    else:
+        raise Exception(f"ERROR: unknown model '{model_name}'")
 
 def smurf_stanza(text: str, smurf_indexes: Optional[Dict[Tuple[int, int], int]] = None) -> str:
-    nlp = get_fr_model()
-    return doc_to_smurf(nlp(text), nlp, FrenchWordStanza, smurf_indexes)
+    nlp = get_fr_nlp_model("stanza")
+    return doc_to_smurf(StanzaDocAdapter(nlp(text)), nlp, StanzaDocAdapter, smurf_indexes)
 
 def load_smurf_dataset(data_dir="./data"):
     files = [os.path.join(data_dir, file) for file in os.listdir(data_dir) if file.endswith(".txt")]
@@ -420,15 +538,17 @@ def load_smurf_dataset(data_dir="./data"):
                         delimiter=";",
                         quote_char=None)
 
-def test_smurf_dataset(data_dir="./data"):
+def test_smurf_dataset(model_name="stanza", data_dir="./data"):
     dataset = load_smurf_dataset()
-    nlp = stanza.Pipeline(lang='fr', processors="tokenize")
+    start = time.process_time()
+    nlp = get_fr_nlp_model(model_name)
+    doc_adapter = get_doc_adapter_class(model_name)
     nbr_of_examples = 0
     nbr_of_correct_examples = 0
     for example in dataset["train"]:
         nbr_of_examples += 1
-        doc_smurf = nlp(example["smurf"])
-        doc_fr = nlp(example["french"])
+        doc_smurf = doc_adapter(nlp(example["smurf"]))
+        doc_fr = doc_adapter(nlp(example["french"]))
         smurf_indexes = {}
         for s, sentence in enumerate(doc_smurf.sentences):
             for n, token in enumerate(sentence.tokens):
@@ -441,7 +561,7 @@ def test_smurf_dataset(data_dir="./data"):
                     else:
                         smurf_indexes[(s, n)] = WHOLE_WORD
 
-        to_smurf = smurf_stanza(doc_fr.text, smurf_indexes)
+        to_smurf = doc_to_smurf(doc_fr, nlp, doc_adapter, smurf_indexes)
         if to_smurf == doc_smurf.text:
             nbr_of_correct_examples += 1
         else:
@@ -452,22 +572,25 @@ def test_smurf_dataset(data_dir="./data"):
             print("=========================================")
 
     print(f"\nTotal correct = {nbr_of_correct_examples}/{nbr_of_examples} "
-          f"({nbr_of_correct_examples/nbr_of_examples}%)")
+          f"({nbr_of_correct_examples/nbr_of_examples}%) "
+          f"(time = {time.process_time() - start:.2f}s)"
+          )
 
-def smurf_dataset_stats(data_dir="./data"):
+def smurf_dataset_stats(model_name="stanza", data_dir="./data"):
     dataset = load_smurf_dataset()
-    nlp = stanza.Pipeline(lang='fr', processors="tokenize,mwt,pos,lemma")
+    nlp = get_fr_nlp_model(model_name)
+    doc_adapter = get_doc_adapter_class(model_name)
     nbr_of_smurf_words = 0
     nbr_of_can_smurf_words = 0
     nbr_of_words = 0
     for example in dataset["train"]:
-        doc_smurf = nlp(example["smurf"])
+        doc_smurf = doc_adapter(nlp(example["smurf"]))
         for sentence in doc_smurf.sentences:
             for token in sentence.tokens:
                 nbr_of_words += 1
                 if SCHTROUMPF_STR in token.text.lower():
                     nbr_of_smurf_words += 1
-                elif FrenchWordStanza(token).can_smurf():
+                elif token.can_smurf():
                     nbr_of_can_smurf_words += 1
 
     print(f"\nTotal words = {nbr_of_words}, smurf words = {nbr_of_smurf_words} ({nbr_of_smurf_words/nbr_of_words}%), "
@@ -477,21 +600,20 @@ def smurf_dataset_stats(data_dir="./data"):
 
 random.seed(42)
 SMURF_VS_CAN_SMURF_RATIO=0.33
-def random_smurf(text: str, nlp=None):
-    if nlp is None:
-        nlp = stanza.Pipeline(lang='fr', processors="tokenize,mwt,pos,lemma")
-    doc = nlp(text)
+def random_smurf(text: str, model_name="stanza"):
+    nlp = get_fr_nlp_model(model_name)
+    doc_adapter = get_doc_adapter_class(model_name)
+    doc = doc_adapter(nlp(text))
 
     smurf_indexes = {}
     for s, sentence in enumerate(doc.sentences):
         for n, token in enumerate(sentence.tokens):
-            token_smurf = FrenchWordStanza(token)
-            if token_smurf.can_smurf() and random.random() <= SMURF_VS_CAN_SMURF_RATIO:
-                if "-" in token.text and token_smurf.pos() == BasicPOS.NOUN:
+            if token.can_smurf() and random.random() <= SMURF_VS_CAN_SMURF_RATIO:
+                if "-" in token.text and token.pos == BasicPOS.NOUN:
                     subwords = token.text.split("-")
                     can_smurf_subwords = []
                     for i, subword in enumerate(subwords):
-                        if subword and FrenchWordStanza(nlp(subword).sentences[0].tokens[0]).can_smurf():
+                        if subword and (doc_adapter(nlp(subword)).sentences[0].tokens[0]).can_smurf():
                             can_smurf_subwords.append(i)
                     if can_smurf_subwords:
                         smurf_indexes[(s, n)] = random.choice(can_smurf_subwords)
@@ -500,12 +622,10 @@ def random_smurf(text: str, nlp=None):
                 else:
                     smurf_indexes[(s, n)] = WHOLE_WORD
 
-    return doc_to_smurf(doc, nlp, FrenchWordStanza, smurf_indexes)
+    return doc_to_smurf(doc, nlp, doc_adapter, smurf_indexes)
 
 OSCAR_SMURF_CSV_SEPARATOR="ༀ"
-def convert_oscar_file(filepath, start_line=1):
-    nlp = stanza.Pipeline(lang='fr', processors="tokenize,mwt,pos,lemma")
-    nbr_of_lines = 0
+def convert_oscar_file(filepath, start_line=1, model_name="stanza"):
     with open(filepath, 'r') as input_file:
         nbr_of_lines = 0
         while (input_file.readline()):
@@ -528,7 +648,7 @@ def convert_oscar_file(filepath, start_line=1):
                 if (line_number % 1000) == 0:
                     print(f"{line_number} lines processed {100*line_number/nbr_of_lines}%")
                 try:
-                    smurf_line = random_smurf(line, nlp)
+                    smurf_line = random_smurf(line, model_name)
                 except:
                     print(f"ERROR converting sentence {line}")
                     continue
