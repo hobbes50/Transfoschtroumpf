@@ -491,7 +491,7 @@ def random_smurf(text: str, nlp=None):
                     subwords = token.text.split("-")
                     can_smurf_subwords = []
                     for i, subword in enumerate(subwords):
-                        if FrenchWordStanza(nlp(subword).sentences[0].tokens[0]).can_smurf():
+                        if subword and FrenchWordStanza(nlp(subword).sentences[0].tokens[0]).can_smurf():
                             can_smurf_subwords.append(i)
                     if can_smurf_subwords:
                         smurf_indexes[(s, n)] = random.choice(can_smurf_subwords)
