@@ -765,10 +765,15 @@ def convert_oscar_file(filepath, start_line=1, model_name="stanza"):
         line_number = 0
         with open(output_filename, 'w' if start_line <= 1 else "a") as output_file:
             while True:
-                line = input_file.readline().rstrip('\n')
+                line = input_file.readline()
                 if not line:
                     break
                 line_number += 1
+                line = line.rstrip('\n')
+
+                if not line:
+                    continue
+
                 if line_number < start_line:
                     continue
 
