@@ -186,6 +186,14 @@ def get_transfoschtroumpf(tokenizer, base_model="camembert-base",
     model.decoder.config.vocab_size += NBR_OF_SMURF_TOKENS
     model.decoder.resize_token_embeddings(model.decoder.config.vocab_size)
 
+    encoder: CamembertModel = model.encoder
+    decoder: CamembertModel = model.decoder
+    mask_token_id = tokenizer.base_tokenizer.mask_token_id
+
+    # Initial embedding of smurf word = <mask> embedding
+    for i in range(encoder.config.vocab_size - NBR_OF_SMURF_TOKENS, encoder.config.vocab_size):
+        encoder.get_input_embeddings().weight[i].data.copy_(encoder.get_input_embeddings().weight[mask_token_id].data)
+        decoder.get_input_embeddings().weight[i].data.copy_(decoder.get_input_embeddings().weight[mask_token_id].data)
 
     if freeze_encoder:
         for name, param in encoder.named_parameters():
