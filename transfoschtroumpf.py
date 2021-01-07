@@ -176,6 +176,7 @@ class TransfoSchtroumpf(EncoderDecoderModel):
 
 def get_transfoschtroumpf(tokenizer, base_model="camembert-base",
                           decoder_nbr_of_hidden_layers=1,
+                          freeze_encoder=True,
                           decoder_nbr_of_heads=1):
     #config = EncoderDecoderConfig.from_encoder_decoder_configs(base_model, base_model)
     model : EncoderDecoderModel = EncoderDecoderModel.from_encoder_decoder_pretrained(base_model, base_model)
@@ -184,6 +185,12 @@ def get_transfoschtroumpf(tokenizer, base_model="camembert-base",
     model.encoder.resize_token_embeddings(model.encoder.config.vocab_size)
     model.decoder.config.vocab_size += NBR_OF_SMURF_TOKENS
     model.decoder.resize_token_embeddings(model.decoder.config.vocab_size)
+
+
+    if freeze_encoder:
+        for name, param in encoder.named_parameters():
+            print(f"freezing {name}")
+            param.requires_grad = False
 
     # Add a lightweight decoder with a LM head
     #config.decoder.is_decoder = True
