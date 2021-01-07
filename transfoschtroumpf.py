@@ -68,33 +68,50 @@ class SmurfTokenizer(PreTrainedTokenizer):
     def save_vocabulary(self, save_directory: str, filename_prefix: Optional[str] = None):
         return self.base_tokenizer.save_vocabulary(save_directory)
 
-    def _tokenize(self, text):
-        smurf_index = text.lower().find(self.smurf_base_token)
-        if (smurf_index < 0):
-            return self.base_tokenizer.tokenize(text)
-        else:
-            end_smurf_index = smurf_index + len(self.smurf_base_token)
-            is_first_word = smurf_index == 0
-            after_space = smurf_index > 0 and text[smurf_index - 1] == " "
-            previous_tokens = self.base_tokenizer.tokenize(text[:smurf_index - int(after_space)])
-            smurf_token = text[smurf_index:end_smurf_index]
-            if (is_first_word or after_space):
-                smurf_token = self.space_symbol + smurf_token
+    def remove_spaces_in_first_token(self, tokens):
+        if (tokens
+                and
+                tokens[0]
+                and
+                tokens[0][0] == self.space_symbol):
+            tokens[0] = tokens[0][1:]
+            if tokens[0] == "":
+                tokens.pop(0)
 
-            next_tokens = self.tokenize(text[end_smurf_index:])
-            if (end_smurf_index + 1 < len(text)
-                    and
-                    text[end_smurf_index] != " "
-                    and
-                    next_tokens
-                    and
-                    next_tokens[0]
-                    and
-                    next_tokens[0][0] == self.space_symbol):
-                next_tokens[0] = next_tokens[0][1:]
-                if (next_tokens[0] == ""):
-                    next_tokens.pop(0)
-            return previous_tokens + [smurf_token] + next_tokens
+    def _tokenize(self, text) -> List[str]:
+        tokenized_text = []
+        offset = 0
+        inside_smurf_word = False
+        while offset < len(text):
+            smurf_index = text.lower().find(self.smurf_base_token, offset)
+            if smurf_index < 0:
+                smurf_index = len(text)
+                end_smurf_index = len(text)
+                smurf_token = None
+                after_space = False
+            else:
+                end_smurf_index = smurf_index + len(self.smurf_base_token)
+                is_first_word = smurf_index == 0
+                after_space = smurf_index > 0 and text[smurf_index - 1] == " "
+                smurf_token = text[smurf_index:end_smurf_index]
+                if is_first_word or after_space:
+                    smurf_token = self.space_symbol + smurf_token
+
+            previous_tokens = self.base_tokenizer.tokenize(text[offset:smurf_index - int(after_space)])
+
+            if inside_smurf_word:
+                self.remove_spaces_in_first_token(previous_tokens)
+                inside_smurf_word = False
+
+            if end_smurf_index < len(text) and text[end_smurf_index] != " ":
+                inside_smurf_word = True
+
+            tokenized_text += previous_tokens
+            if smurf_token is not None:
+                tokenized_text.append(smurf_token)
+            offset = end_smurf_index
+
+        return tokenized_text
 
 
 class TransfoSchtroumpf(EncoderDecoderModel):
