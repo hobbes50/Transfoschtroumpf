@@ -299,7 +299,11 @@ class EncoderDecoderCollator(DataCollatorWithPadding):
                                           pad_to_multiple_of=self.pad_to_multiple_of,
                                           return_tensors="pt")
 
-        batch["labels"] = batch_labels["input_ids"]
+        batch["labels"] = batch_labels["input_ids"].copy()
+        # -100: special value to ignore <pad> tokens when computing the loss
+        batch["labels"] = [[-100 if token == self.tokenizer.pad_token_id else token for token in labels]
+                           for labels in batch["labels"]]
+
         batch["decoder_input_ids"] = batch_labels["input_ids"]
 
         return batch
