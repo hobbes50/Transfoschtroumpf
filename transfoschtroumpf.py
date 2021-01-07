@@ -1,6 +1,7 @@
 from transformers import AutoModel, AutoTokenizer, PreTrainedTokenizer, Trainer, TrainingArguments, PreTrainedModel,\
     EncoderDecoderModel, EncoderDecoderConfig, DataCollatorWithPadding
-from transformers import RobertaConfig, RobertaForCausalLM, modeling_outputs
+from transformers import RobertaConfig, RobertaForCausalLM, CamembertModel, modeling_outputs
+import transformers
 from datasets import load_dataset
 from torch import nn, utils
 import torch
@@ -12,7 +13,7 @@ SENTENCE_PIECE_SPACE="▁"
 
 
 
-NBR_OF_SMURF_TOKENS=3 #_schtroumpf, _Schtroumpf, ##schtroumpf (in-word)
+NBR_OF_SMURF_TOKENS=3  #_schtroumpf, _Schtroumpf, ##schtroumpf (in-word)
 class SmurfTokenizer(PreTrainedTokenizer):
     # vocab_files_names = tokenization_camembert.VOCAB_FILES_NAMES
     # pretrained_vocab_files_map = tokenization_camembert.PRETRAINED_VOCAB_FILES_MAP
@@ -22,7 +23,7 @@ class SmurfTokenizer(PreTrainedTokenizer):
     def __init__(self, model_name="camembert-base", smurf_base_token="schtroumpf", space_symbol=SENTENCE_PIECE_SPACE,
                  **kwargs):
         super().__init__()
-        self.base_tokenizer = AutoTokenizer.from_pretrained(model_name)
+        self.base_tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=False)
         self.smurf_base_token = smurf_base_token
         self.space_symbol = space_symbol
         self.all_smurf_tokens = [smurf_base_token, self.space_symbol + self.smurf_base_token,
@@ -30,6 +31,10 @@ class SmurfTokenizer(PreTrainedTokenizer):
         self.pad_token = self.base_tokenizer.pad_token
         self.mask_token = self.base_tokenizer.mask_token
         self.eos_token = self.base_tokenizer.eos_token
+        self.bos_token = self.base_tokenizer.bos_token
+        self.sep_token = self.base_tokenizer.sep_token
+        self.cls_token = self.base_tokenizer.cls_token
+        self.unk_token = self.base_tokenizer.unk_token
         self.model_max_length = self.base_tokenizer.model_max_length
 
     def build_inputs_with_special_tokens(self, token_ids_0: List, token_ids_1: Optional[List] = None) -> List:
@@ -116,9 +121,9 @@ class SmurfTokenizer(PreTrainedTokenizer):
 
 class TransfoSchtroumpf(EncoderDecoderModel):
 
-    def __init__(self, config=None):
+    def __init__(self, tokenizer: SmurfTokenizer, config=None):
 
-        encoder = AutoModel.from_pretrained("camembert-base", add_pooling_layer=False)
+        encoder: CamembertModel = AutoModel.from_pretrained("camembert-base", add_pooling_layer=False)
         encoder.config.vocab_size += 3
         encoder.resize_token_embeddings(encoder.config.vocab_size)
         self.config = encoder.config
@@ -241,21 +246,29 @@ def get_transfoschtroumpf(tokenizer, base_model="camembert-base",
     return model
 
 def prepare_sentence(tokenizer, data_sample, from_language="smurf", to_language="french"):
-    item = tokenizer(data_sample[from_language])
-    item['labels'] = tokenizer(data_sample[to_language])["input_ids"]
+    item = tokenizer(data_sample[from_language], max_length=256, truncation=True)
+    item['labels'] = tokenizer(data_sample[to_language], max_length=256, truncation=True)["input_ids"]
     #item["decoder_input_ids"] = tokenizer(data_sample[to_language])["input_ids"]
     return item
 
+import csv
+csv.field_size_limit(2 << 30)
+
 def get_dataset(tokenizer, data_dir="./data"):
-    files = [os.path.join(data_dir, file) for file in os.listdir(data_dir) if file.endswith(".txt")]
+    #files = [os.path.join(data_dir, file) for file in os.listdir(data_dir) if file.endswith(".txt")]
+    files = ["/home/simon/Downloads/OSCAR/smurf_fr_part_1.txt"]
     dataset = load_dataset('csv',
                            data_files=files,
-                           column_names=["smurf", "french"],
-                           delimiter=";",
-                           quote_char=None)
+                           column_names=["index", "french", "smurf"],
+                           delimiter="ༀ",
+                           quoting=3,  # Disable quoting
+                           decimal=",",
+                           doublequote=False,
+                           error_bad_lines=False)
     dataset = dataset.map(lambda x: prepare_sentence(tokenizer, x))
     dataset = dataset["train"].train_test_split(test_size=0.1)
     dataset.set_format(type='torch')
+    dataset.save_to_disk("./data/dataset_oscar_1_tok")
     return dataset
 
 class SmurfTrainer(Trainer):
@@ -294,14 +307,18 @@ class EncoderDecoderCollator(DataCollatorWithPadding):
 def train_transmoschtroumpf():
     smurf_tok = SmurfTokenizer()
 
-    model = get_transfoschtroumpf(smurf_tok)
+    #model = get_transfoschtroumpf(smurf_tok, decoder_nbr_of_hidden_layers=3)
+    transformers.logging.set_verbosity_info()
+    model = EncoderDecoderModel.from_pretrained("./results/checkpoint-15000")
+    model.train()
+    #dataset = datasets.load_from_disk("./data/dataset_oscar_1_tok")
     dataset = get_dataset(smurf_tok)
 
     training_args = TrainingArguments(
         output_dir='./results',          # output directory
         num_train_epochs=1,              # total # of training epochs
-        per_device_train_batch_size=8,  # batch size per device during training
-        per_device_eval_batch_size=16,   # batch size for evaluation
+        per_device_train_batch_size=4,  # batch size per device during training
+        per_device_eval_batch_size=8,   # batch size for evaluation
         warmup_steps=256,                # number of warmup steps for learning rate scheduler
         weight_decay=0.01,               # strength of weight decay
         logging_steps=10,
@@ -317,7 +334,7 @@ def train_transmoschtroumpf():
         data_collator=EncoderDecoderCollator(smurf_tok))
 
     print("Training...")
-    trainer.train()
+    trainer.train("./results/checkpoint-15000")
     print("Saving model...")
     model.save_pretrained("saved_models")
     print("Evaluating...")
