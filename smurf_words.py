@@ -66,6 +66,8 @@ SPECIAL_SMURF_ADJECTIVES: Dict[str, str] = {
 
 SPECIAL_SMURF_VERBS: Dict[str, str] = {
     "défaire":f"dé{SCHTROUMPF_STR}er",
+    "démonter":f"dé{SCHTROUMPF_STR}er",
+    "démolir":f"dé{SCHTROUMPF_STR}er",
     "entraider":f"en{SCHTROUMPF_STR}er",
     "emmerder":f"en{SCHTROUMPF_STR}er",
     "rammener":f"re{SCHTROUMPF_STR}er",
