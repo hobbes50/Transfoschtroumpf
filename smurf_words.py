@@ -666,45 +666,56 @@ def load_smurf_dataset(data_dir="./data"):
                                  data_files=files,
                                  column_names=["smurf", "french"],
                                  delimiter=";",
-                                 quote_char=None)
+                                 quote_char=None,
+                                 split="train")
 
-def test_smurf_dataset(model_name="stanza", data_dir="./data"):
-    dataset = load_smurf_dataset()
-    start = time.process_time()
-    nlp = get_fr_nlp_model(model_name)
-    doc_adapter = get_doc_adapter_class(model_name)
-    nbr_of_examples = 0
-    nbr_of_correct_examples = 0
-    for example in dataset["train"]:
-        nbr_of_examples += 1
-        doc_smurf = doc_adapter(nlp(example["smurf"]))
-        doc_fr = doc_adapter(nlp(example["french"]))
-        smurf_indexes = {}
-        for s, sentence in enumerate(doc_smurf.sentences):
-            for n, token in enumerate(sentence.tokens):
-                if SCHTROUMPF_STR in token.text.lower():
-                    if "-" in token.text:
-                        for i, subword in enumerate(token.text.split("-")):
-                            if SCHTROUMPF_STR in subword:
-                                smurf_indexes[(s, n)] = i
-                                break
-                    else:
-                        smurf_indexes[(s, n)] = WHOLE_WORD
+def find_smurf_indexes(doc: DocAdapter):
+    smurf_indexes = {}
+    for s, sentence in enumerate(doc.sentences):
+        for n, token in enumerate(sentence.tokens):
+            if SCHTROUMPF_STR in token.text.lower():
+                if "-" in token.text:
+                    for i, subword in enumerate(token.text.split("-")):
+                        if SCHTROUMPF_STR in subword:
+                            smurf_indexes[(s, n)] = i
+                            break
+                else:
+                    smurf_indexes[(s, n)] = WHOLE_WORD
+    return smurf_indexes
 
-        to_smurf = doc_to_smurf(doc_fr, nlp, doc_adapter, smurf_indexes)
-        if to_smurf == doc_smurf.text:
-            nbr_of_correct_examples += 1
-        else:
-            print("==================ERROR==================")
-            print("FRENCH  : " + doc_fr.text)
-            print("TO_SMURF: " + to_smurf)
-            print("LABEL   : " + doc_smurf.text)
-            print("=========================================")
 
-    print(f"\nTotal correct = {nbr_of_correct_examples}/{nbr_of_examples} "
-          f"({nbr_of_correct_examples/nbr_of_examples}%) "
-          f"(time = {time.process_time() - start:.2f}s)"
-          )
+def add_smurf_for_model_and_compare_label(row, doc_adapter, nlp, model_name):
+    doc_smurf = doc_adapter(nlp(row["smurf"])) # label
+    doc_fr = doc_adapter(nlp(row["french"]))
+    smurf_indexes = find_smurf_indexes(doc_smurf)
+
+    to_smurf = doc_to_smurf(doc_fr, nlp, doc_adapter, smurf_indexes)
+    row[model_name] = to_smurf
+    row[model_name + "_ok"] = (to_smurf == doc_smurf.text)
+
+    return row
+
+
+def test_models_on_smurf_dataset(model_names=["stanza"], data_dir="./data"):
+    dataset = load_smurf_dataset(data_dir)
+
+    for model_name in model_names:
+        start = time.process_time()
+        nlp = get_fr_nlp_model(model_name)
+        doc_adapter = get_doc_adapter_class(model_name)
+
+        print("Evaluating " + model_name)
+        dataset = dataset.map(lambda row: add_smurf_for_model_and_compare_label(row, doc_adapter, nlp, model_name),
+                              load_from_cache_file=False)
+
+        total_correct = len(dataset.filter(lambda row: row[model_name + '_ok'], load_from_cache_file=False))
+        total_examples = len(dataset)
+        print(f"\nTotal correct ({model_name}) = {total_correct}/{total_examples} "
+              f"({total_correct/total_examples}%) "
+              f"(time = {time.process_time() - start:.2f}s)")
+
+    dataset.to_csv("test_smurf_dataset.csv")
+
 
 def smurf_dataset_stats(model_name="stanza", data_dir="./data"):
     dataset = load_smurf_dataset()
@@ -795,6 +806,7 @@ def convert_oscar_file(filepath, start_line=1, model_name="stanza"):
 def add_smurf(row, model_name):
     row['smurf'] = random_smurf(row["text"], model_name)
     return row
+
 
 def convert_text_file_to_hf_dataset(files, result_path, model_name="stanza", checkpoint_steps=10000):
     first_index_to_process = 0
