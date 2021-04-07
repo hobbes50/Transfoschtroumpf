@@ -47,12 +47,20 @@ First_group_suffix[FrenchTense.INFINITIF] = ["er"]
 First_group_suffix[FrenchTense.PARTICIPE_PASSE] = ["é", "ée", "és", "ées"]
 
 SPECIAL_SMURF_NOUNS: Dict[str, str] = {
+    "circonstance":f"{SCHTROUMPF_STR}onstance",
+    "collimateur":f"collima{SCHTROUMPF_STR}eur",
+    "connerie":f"{SCHTROUMPF_STR}erie",
+    "barbecue":f"barbe{SCHTROUMPF_STR}",
     "bouchon":f"bou{SCHTROUMPF_STR}",
     "fratricide":f"{SCHTROUMPF_STR}icide",
+    "flatteur":f"{SCHTROUMPF_STR}eur",
+    "forgeron":f"{SCHTROUMPF_STR}eron",
+    "menteur":f"{SCHTROUMPF_STR}eur",
     "montgolfière":f"mont{SCHTROUMPF_STR}ière",
     "nitroglycérine":f"nitroglycé{SCHTROUMPF_STR}",
     "parapluie":f"para{SCHTROUMPF_STR}",
     "pistolet":f"pisto{SCHTROUMPF_STR}",
+    "plumage":f"{SCHTROUMPF_STR}age",
     "pneumonie":f"pneumo{SCHTROUMPF_STR}",
     "question":f"{SCHTROUMPF_STR}", #To prevent "quesschtrompf"
     "soporifique":f"sopori{SCHTROUMPF_STR}",
@@ -60,8 +68,11 @@ SPECIAL_SMURF_NOUNS: Dict[str, str] = {
     "trombone":f"{SCHTROUMPF_STR}bone"}
 
 SPECIAL_SMURF_ADJECTIVES: Dict[str, str] = {
-    "formidable":f"formi{SCHTROUMPF_STR}",
+    "amusant":f"{SCHTROUMPF_STR}ant",
+    "épatant":f"{SCHTROUMPF_STR}ant",
     "esthétique":f"esthéti{SCHTROUMPF_STR}",
+    "formidable":f"formi{SCHTROUMPF_STR}",
+    "marrant":f"{SCHTROUMPF_STR}ant",
     "universel":f"univer{SCHTROUMPF_STR}"
 }
 
@@ -69,10 +80,11 @@ SPECIAL_SMURF_VERBS: Dict[str, str] = {
     "défaire":f"dé{SCHTROUMPF_STR}er",
     "démonter":f"dé{SCHTROUMPF_STR}er",
     "démolir":f"dé{SCHTROUMPF_STR}er",
-    "entraider":f"en{SCHTROUMPF_STR}er",
+    "entraider":f"entre{SCHTROUMPF_STR}er",
     "emmerder":f"en{SCHTROUMPF_STR}er",
     "rammener":f"re{SCHTROUMPF_STR}er",
     "recommencer":f"re{SCHTROUMPF_STR}er",
+    "redire":f"re{SCHTROUMPF_STR}er",
     "redonner":f"re{SCHTROUMPF_STR}er",
     "regagner":f"re{SCHTROUMPF_STR}er",
     "remettre":f"re{SCHTROUMPF_STR}er",
@@ -80,11 +92,17 @@ SPECIAL_SMURF_VERBS: Dict[str, str] = {
     "revenir":f"re{SCHTROUMPF_STR}er",
     "retrouver":f"re{SCHTROUMPF_STR}er"}
 
-SPECIAL_SMURF_INTERJ: Dict[str, str] = {
+SPECIAL_SMURF_WORDS: Dict[str, str] = {
     "atchoum":f"a{SCHTROUMPF_STR}",
-    "cocorico":f"cocori{SCHTROUMPF_STR}",
     "bonjour":f"bon{SCHTROUMPF_STR}",
-    "sapristi":f"sapri{SCHTROUMPF_STR}"}
+    "cocorico":f"cocori{SCHTROUMPF_STR}",
+    "eureka":f"eure{SCHTROUMPF_STR}",
+    "eurêka":f"eurê{SCHTROUMPF_STR}",
+    "messieurs":f"mes{SCHTROUMPF_STR}s",
+    "ramage":f"{SCHTROUMPF_STR}age",
+    "sapristi":f"sapri{SCHTROUMPF_STR}",
+    "tronçonneuse":f"{SCHTROUMPF_STR}onneuse"}
+
 
 def conjugate_1st_group_verb(radical: str,
                              tense: FrenchTense,
@@ -116,7 +134,9 @@ class BasicPOS(Enum):
     INTERJECTION = auto()
     OTHER = auto()
 
+
 UNTOUCHED_VERB_PREFIXS = re.compile(r"^(dé|re|en)")
+
 
 Non_smurf_verbs = {"être", "avoir", "pouvoir", "devoir", "falloir"}
 
@@ -164,6 +184,9 @@ class TokenAdapter:
         if SCHTROUMPF_STR in self.text.lower():
             return False
 
+        if self.text.lower() in SPECIAL_SMURF_WORDS:
+            return True
+
         pos = self.pos
         return (pos == BasicPOS.NOUN
                 or
@@ -180,7 +203,9 @@ class TokenAdapter:
         if not self.can_smurf():
             return self.text
 
-        if pos == BasicPOS.NOUN:
+        if self.text.lower() in SPECIAL_SMURF_WORDS:
+            new_text = SPECIAL_SMURF_WORDS[self.text.lower()]
+        elif pos == BasicPOS.NOUN:
             if self.lemma in SPECIAL_SMURF_NOUNS:
                 new_text = SPECIAL_SMURF_NOUNS[self.lemma]
             else:
@@ -219,10 +244,7 @@ class TokenAdapter:
 
             new_text += self.plural_suffix()
         elif pos == BasicPOS.INTERJECTION:
-            if self.text in SPECIAL_SMURF_INTERJ:
-                new_text = SPECIAL_SMURF_INTERJ[self.text]
-            else:
-                new_text = SCHTROUMPF_STR
+            new_text = SCHTROUMPF_STR
         else:
             new_text = self.text
 
@@ -295,6 +317,13 @@ def doc_to_smurf(doc : DocAdapter,
 
     return smurf_text
 
+Lefff_to_BasicPOS: Dict[str, BasicPOS] = {"nc": BasicPOS.NOUN,
+                                          "n": BasicPOS.NOUN,
+                                          "adj": BasicPOS.ADJECTIVE,
+                                          "adv": BasicPOS.ADVERB,
+                                          "auxAvoir": BasicPOS.AUXILIARY,
+                                          "auxEtre": BasicPOS.AUXILIARY,
+                                          "v": BasicPOS.VERB}
 
 UTag_to_BasicPOS: Dict[str, BasicPOS] = {"NOUN": BasicPOS.NOUN,
                                          "ADJ": BasicPOS.ADJECTIVE,
@@ -646,6 +675,7 @@ def get_fr_nlp_model(name: str):
 
         return model
 
+
 def get_doc_adapter_class(model_name: str):
     if model_name.startswith("stanza"):
         return StanzaDocAdapter
@@ -656,9 +686,11 @@ def get_doc_adapter_class(model_name: str):
     else:
         raise Exception(f"ERROR: unknown model '{model_name}'")
 
+
 def smurf_stanza(text: str, smurf_indexes: Optional[Dict[Tuple[int, int], int]] = None) -> str:
     nlp = get_fr_nlp_model("stanza")
     return doc_to_smurf(StanzaDocAdapter(nlp(text)), nlp, StanzaDocAdapter, smurf_indexes)
+
 
 def load_smurf_dataset(data_dir="./data"):
     files = [os.path.join(data_dir, file) for file in os.listdir(data_dir) if file.endswith(".txt")]
@@ -668,6 +700,7 @@ def load_smurf_dataset(data_dir="./data"):
                                  delimiter=";",
                                  quote_char=None,
                                  split="train")
+
 
 def find_smurf_indexes(doc: DocAdapter):
     smurf_indexes = {}
