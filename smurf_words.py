@@ -6,13 +6,14 @@ import spacy
 #import spacy_udpipe
 import ufal.udpipe as udpipe
 from spacy.tokens import Token as SpacyToken, Doc as SpacyDoc
-from datasets import load_dataset
+import datasets
 import stanza
 from stanza.models.common.doc import Token as StanzaToken, Document as StanzaDoc
 import time
 import re
 import sys
 import os
+import shutil
 
 SCHTROUMPF_STR="schtroumpf"
 
@@ -661,11 +662,11 @@ def smurf_stanza(text: str, smurf_indexes: Optional[Dict[Tuple[int, int], int]] 
 
 def load_smurf_dataset(data_dir="./data"):
     files = [os.path.join(data_dir, file) for file in os.listdir(data_dir) if file.endswith(".txt")]
-    return load_dataset('csv',
-                        data_files=files,
-                        column_names=["smurf", "french"],
-                        delimiter=";",
-                        quote_char=None)
+    return datasets.load_dataset('csv',
+                                 data_files=files,
+                                 column_names=["smurf", "french"],
+                                 delimiter=";",
+                                 quote_char=None)
 
 def test_smurf_dataset(model_name="stanza", data_dir="./data"):
     dataset = load_smurf_dataset()
@@ -789,3 +790,45 @@ def convert_oscar_file(filepath, start_line=1, model_name="stanza"):
                 output_file.write(str(line_number) + OSCAR_SMURF_CSV_SEPARATOR
                                   + line + OSCAR_SMURF_CSV_SEPARATOR
                                   + smurf_line + "\n")
+
+
+def add_smurf(row, model_name):
+    row['smurf'] = random_smurf(row["text"], model_name)
+    return row
+
+def convert_text_file_to_hf_dataset(files, result_path, model_name="stanza", checkpoint_steps=10000):
+    first_index_to_process = 0
+    input_dataset = datasets.load_dataset('text', data_files=files, split='train')
+    processed_dataset = None
+    if os.path.isdir(result_path):
+        processed_dataset = datasets.load_from_disk(result_path)
+        first_index_to_process = len(processed_dataset)
+
+    previous_checkpoints = (first_index_to_process + checkpoint_steps - 1) // checkpoint_steps
+    next_checkpoints = (len(input_dataset) - first_index_to_process + checkpoint_steps - 1) // checkpoint_steps
+    total_checkpoints = previous_checkpoints + next_checkpoints
+
+    print(f"Checkpoint 0/{total_checkpoints}")
+    for n, i in enumerate(range(first_index_to_process, len(input_dataset), checkpoint_steps)):
+        end_index = min(i + checkpoint_steps, len(input_dataset))
+        dataset_split = input_dataset.select(range(i, end_index))
+        processed_split = dataset_split.map(lambda row: add_smurf(row, model_name))
+        if processed_dataset is None:
+            processed_dataset = processed_split
+        else:
+            processed_dataset = datasets.concatenate_datasets([processed_dataset, processed_split])
+
+        saved_old_results = ""
+        if os.path.isdir(result_path):
+            saved_old_results = result_path + ".saved"
+            shutil.move(result_path, saved_old_results)
+
+        print(f"Checkpoint {previous_checkpoints + n + 1}/{total_checkpoints}, saving in {result_path}... ", end="")
+        processed_dataset.save_to_disk(result_path)
+        print("done")
+
+        if saved_old_results:
+            shutil.rmtree(saved_old_results)
+
+
+
