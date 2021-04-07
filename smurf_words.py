@@ -3,7 +3,7 @@ import random
 from typing import Dict, List, Optional, Set, Tuple, Callable, Any
 from dataclasses import dataclass
 import spacy
-import spacy_udpipe
+#import spacy_udpipe
 import ufal.udpipe as udpipe
 from spacy.tokens import Token as SpacyToken, Doc as SpacyDoc
 from datasets import load_dataset
@@ -354,9 +354,9 @@ def ufeats_to_fr_tense(features: Dict[str, str]) -> FrenchTense:
 class SpacyTokenAdapter(TokenAdapter):
     def __init__(self, token: SpacyToken):
         self.token = token
-        features = token.tag_.split("__")
+        features = str(token.morph)
         self.spacy_tag = token.pos_
-        self.features = dict([x.split("=") for x in features[-1].split("|") if "=" in x])
+        self.features = dict([x.split("=") for x in features.split("|") if "=" in x])
 
     @property
     def text(self) -> str:
@@ -628,13 +628,13 @@ def get_fr_nlp_model(name: str):
     except KeyError:
         model = None
         if name == "stanza":
-            model = stanza.Pipeline(lang='fr', processors='tokenize,mwt,pos,lemma')
+            model = stanza.Pipeline(lang='fr', processors='tokenize,mwt,pos,lemma') #, dir="/media/simon/DATA/stanza_resources")
         elif name == "spacy" or name == "spacy/large":
             model = spacy.load("fr_core_news_lg")
+        elif name == "spacy" or name == "spacy/trf":
+            model = spacy.load("fr_dep_news_trf")
         elif name == "spacy/medium":
             model = spacy.load("fr_core_news_md")
-        elif name == "spacy-udpipe":
-            model = spacy_udpipe.load("fr")
         elif name == "udpipe":
             udpipe_model = udpipe.Model.load("./french-gsd-ud-2.5-191206.udpipe")
             model = lambda text:udpipe_process_text(udpipe_model, text)
