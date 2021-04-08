@@ -1,6 +1,6 @@
 from enum import Enum, auto
 import random
-from typing import Dict, List, Optional, Set, Tuple, Callable, Any
+from typing import Dict, List, Optional, Set, Tuple, Callable, Any, AnyStr, Pattern
 from dataclasses import dataclass
 import spacy
 #import spacy_udpipe
@@ -14,6 +14,8 @@ import re
 import sys
 import os
 import shutil
+import copy
+import pandas
 
 SCHTROUMPF_STR="schtroumpf"
 
@@ -324,6 +326,105 @@ Lefff_to_BasicPOS: Dict[str, BasicPOS] = {"nc": BasicPOS.NOUN,
                                           "auxAvoir": BasicPOS.AUXILIARY,
                                           "auxEtre": BasicPOS.AUXILIARY,
                                           "v": BasicPOS.VERB}
+
+Lefff_to_fr_tense: Dict[str, FrenchTense] = {"P": FrenchTense.PRESENT,
+                                             "F": FrenchTense.FUTUR,
+                                             "I": FrenchTense.IMPARFAIT,
+                                             "J": FrenchTense.PASSE_SIMPLE,
+                                             "C": FrenchTense.COND_PRESENT,
+                                             "Y": FrenchTense.IMPERATIF,
+                                             "S": FrenchTense.SUBJ_PRESENT,
+                                             "T": FrenchTense.SUBJ_IMPARFAIT,
+                                             "K": FrenchTense.PARTICIPE_PASSE,
+                                             "G": FrenchTense.COND_PRESENT,
+                                             "W": FrenchTense.INFINITIF}
+
+@dataclass
+class TokenFeatures:
+    pos: BasicPOS = BasicPOS.OTHER
+    tense: FrenchTense = FrenchTense.NONE
+    is_feminine: bool = False
+    is_plural: bool = False
+    person: int = 0
+    lemma: str = ""
+
+
+lefff_feats_regex: Pattern[AnyStr] = re.compile(r"^([PFIJCYSTKGW]*)([123]*)?([mf])?([sp])?$")
+
+
+def lefff_code_to_feats(lefff_code: str) -> List[TokenFeatures]:
+    m = re.match(lefff_feats_regex, lefff_code)
+    if not m:
+        print("Invalid lefff code: " + lefff_code)
+        return []
+
+    tenses = m.group(1)
+    persons = m.group(2)
+    feminine = m.group(3)
+    plural = m.group(4)
+
+    feats = []
+    for tense in tenses:
+        feats.append(TokenFeatures(tense=Lefff_to_fr_tense[tense]))
+
+    if not feats:
+        feats.append(TokenFeatures())
+
+    if feminine and "f" in feminine:
+        for feat in feats:
+            feat.is_feminine = True
+
+    if not plural and not tenses:
+        feats_copy = list(map(copy.copy, feats))
+        for feat in feats_copy:
+            feat.is_plural = True
+        feats += feats_copy
+    elif plural and "p" in plural:
+        for feat in feats:
+            feat.is_plural = True
+
+    if persons:
+        additional_persons_feats = []
+        for n, p in enumerate(persons):
+            if n == 0:
+                for feat in feats:
+                    feat.person = int(p)
+            else:
+                feats_copy = list(map(copy.copy, feats))
+                for feat in feats_copy:
+                    feat.person = int(p)
+                additional_persons_feats += feats_copy
+
+        feats += additional_persons_feats
+
+    return feats
+
+
+def read_lefff_dict(path) -> pandas.DataFrame:
+    return pandas.read_csv(path, delimiter='\t', engine="c", names=["form", "pos", "lemma", "feats"], quoting=3)
+
+
+def get_token_features_from_lefff(token: str, lefff: pandas.DataFrame) -> List[TokenFeatures]:
+    token_features = []
+    df = lefff[(lefff["form"] == token.lower()) | (lefff["form"] == token)]
+    for _, row in df.iterrows():
+        row_features: List[TokenFeatures] = []
+        if row["feats"]:
+            row_features = lefff_code_to_feats(row["feats"])
+        else:
+            row_features.append(TokenFeatures())
+
+        for feat in row_features:
+            feat.lemma = row["lemma"]
+            if row["pos"] in Lefff_to_BasicPOS:
+                feat.pos = Lefff_to_BasicPOS[row["pos"]]
+            else:
+                feat.pos = BasicPOS.OTHER
+        token_features += row_features
+
+    return token_features
+
+
 
 UTag_to_BasicPOS: Dict[str, BasicPOS] = {"NOUN": BasicPOS.NOUN,
                                          "ADJ": BasicPOS.ADJECTIVE,
