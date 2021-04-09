@@ -70,11 +70,8 @@ SPECIAL_SMURF_NOUNS: Dict[str, str] = {
     "trombone":f"{SCHTROUMPF_STR}bone"}
 
 SPECIAL_SMURF_ADJECTIVES: Dict[str, str] = {
-    "amusant":f"{SCHTROUMPF_STR}ant",
-    "épatant":f"{SCHTROUMPF_STR}ant",
     "esthétique":f"esthéti{SCHTROUMPF_STR}",
     "formidable":f"formi{SCHTROUMPF_STR}",
-    "marrant":f"{SCHTROUMPF_STR}ant",
     "universel":f"univer{SCHTROUMPF_STR}"
 }
 
@@ -141,6 +138,7 @@ UNTOUCHED_VERB_PREFIXS = re.compile(r"^(dé|re|en)")
 
 
 Non_smurf_verbs = {"être", "avoir", "pouvoir", "devoir", "falloir"}
+Ajd_ant_ends = re.compile("ant[e]?[s]?$")
 
 # Bases classes used by "to_smurf" functions to ba able to change backing NLP library easily (spacy, stanza..)
 class TokenAdapter:
@@ -253,8 +251,10 @@ class TokenAdapter:
             if self.lemma in SPECIAL_SMURF_ADJECTIVES:
                 new_text = SPECIAL_SMURF_ADJECTIVES[self.lemma]
             else:
-                new_text = SCHTROUMPF_STR \
-                           + ("ant" if self.text.endswith("ant") or self.text.endswith("ants") else "")
+                m = re.search(Ajd_ant_ends, self.text)
+                suffix = m.group(0) if m else ""
+
+                new_text = SCHTROUMPF_STR + suffix
 
             new_text += self.plural_suffix()
         elif pos == BasicPOS.INTERJECTION:
