@@ -265,6 +265,9 @@ class SentenceAdapter:
     def tokens(self) -> List[TokenAdapter]:
         return self._tokens
 
+    def add_leff_decorator(self, lefff: pandas.DataFrame):
+        self._tokens = list(map(lambda token: LefffTokenAdapter(token, lefff), self._tokens))
+
 class DocAdapter:
     @property
     def text(self) -> str:
@@ -273,6 +276,11 @@ class DocAdapter:
     @property
     def sentences(self) -> List[SentenceAdapter]:
         raise NotImplementedError()
+
+    def add_leff_decorator(self, lefff: pandas.DataFrame):
+        for sentence in self.sentences:
+            sentence.add_leff_decorator(lefff)
+
 
 
 WHOLE_WORD=-1
@@ -349,7 +357,7 @@ class TokenFeatures:
     lemma: str = ""
 
 
-lefff_feats_regex: Pattern[AnyStr] = re.compile(r"^([PFIJCYSTKGW]*)([123]*)?([mf])?([sp])?$")
+lefff_feats_regex: Pattern[AnyStr] = re.compile(r"^(?:.*_)?([PFIJCYSTKGW]*)([123]*)?([mf])?([sp])?$")
 
 
 def lefff_code_to_feats(lefff_code: str) -> List[TokenFeatures]:
@@ -401,16 +409,23 @@ def lefff_code_to_feats(lefff_code: str) -> List[TokenFeatures]:
 
 
 def read_lefff_dict(path) -> pandas.DataFrame:
-    return pandas.read_csv(path, delimiter='\t', engine="c", names=["form", "pos", "lemma", "feats"], quoting=3)
+    df = pandas.read_csv(path, delimiter='\t', engine="c", names=["form", "pos", "lemma", "feats"], quoting=3)
+    df = df.set_index("form")
+    return df
 
 
 def get_token_features_from_lefff(token: str, lefff: pandas.DataFrame) -> List[TokenFeatures]:
     token_features = []
-    df = lefff[(lefff["form"] == token.lower()) | (lefff["form"] == token)]
+    token_lower = token.lower()
+    try:
+        df = lefff.loc[[token_lower]]
+    except KeyError:
+        return []
     for _, row in df.iterrows():
         row_features: List[TokenFeatures] = []
-        if row["feats"]:
-            row_features = lefff_code_to_feats(row["feats"])
+        feats = row["feats"]
+        if feats and pandas.notna(feats) and feats != "e":
+            row_features = lefff_code_to_feats(feats)
         else:
             row_features.append(TokenFeatures())
 
@@ -424,7 +439,76 @@ def get_token_features_from_lefff(token: str, lefff: pandas.DataFrame) -> List[T
 
     return token_features
 
+def get_token_feature_default_sort_key(feat: TokenFeatures) -> Tuple[int, int]:
+    return (feat.tense != FrenchTense.PRESENT, # Priority to present
+            feat.person != 3) # Priority to 3rd person
 
+def get_token_feature_sort_key_with_token(feat: TokenFeatures, token: TokenAdapter) -> Tuple[int, int, Tuple[int, int]]:
+    # Score possible feats using the following key:
+    # (pos_match_p,
+    #  tense_match_p + person_match_p ^ is_plural_match_p ^ is_feminine_match_p + lemma_match_p
+    #  get_token_feature_sort_key)
+    tense_match_p = (feat.tense == token.tense)
+    person_match_p = (feat.person == token.person)
+    plural_match_p = (feat.is_plural == token.is_plural)
+    fem_match_p = (feat.is_feminine == token.is_feminine())
+    full_person_match_p = person_match_p and plural_match_p and fem_match_p
+    lemma_match_p = (feat.lemma == token.lemma)
+
+    return (feat.pos != token.pos,
+            -(tense_match_p + full_person_match_p + lemma_match_p),
+            get_token_feature_default_sort_key(feat)) # Priority to 3rd person
+
+
+class LefffTokenAdapter(TokenAdapter):
+    def __init__(self, token: TokenAdapter, lefff: pandas.DataFrame):
+        self.token = token
+        possible_feats = get_token_features_from_lefff(token.text, lefff)
+        if len(possible_feats) == 1:
+            self.chosen_feat = possible_feats[0]
+        elif len(possible_feats) == 0:
+            self.chosen_feat = TokenFeatures(pos=token.pos,
+                                             tense=token.tense,
+                                             person=token.person,
+                                             lemma=token.lemma,
+                                             is_plural=token.is_plural(),
+                                             is_feminine=token.is_feminine())
+        else:
+            self.chosen_feat = min(possible_feats, key=lambda feat: get_token_feature_sort_key_with_token(feat, token))
+
+    @property
+    def text(self) -> str:
+        return self.token.text
+
+    @property
+    def pos(self) -> BasicPOS:
+        return self.chosen_feat.pos
+
+    @property
+    def tense(self) -> FrenchTense:
+        return self.chosen_feat.tense
+
+    @property
+    def person(self) -> int:  # 1..3
+        return self.chosen_feat.person
+
+    def is_plural(self) -> bool:
+        return self.chosen_feat.is_plural
+
+    def is_feminine(self) -> bool:
+        return self.chosen_feat.is_feminine
+
+    @property
+    def lemma(self) -> str:
+        return self.chosen_feat.lemma
+
+    @property
+    def start_char(self) -> int:
+        return self.token.start_char
+
+    @property
+    def end_char(self) -> int:
+        return self.token.end_char
 
 UTag_to_BasicPOS: Dict[str, BasicPOS] = {"NOUN": BasicPOS.NOUN,
                                          "ADJ": BasicPOS.ADJECTIVE,
@@ -777,16 +861,24 @@ def get_fr_nlp_model(name: str):
         return model
 
 
-def get_doc_adapter_class(model_name: str):
+def get_doc_adapter_class(model_name: str, lefff: pandas.DataFrame=None):
     if model_name.startswith("stanza"):
-        return StanzaDocAdapter
+        cls = StanzaDocAdapter
     elif model_name.startswith("spacy"):
-        return SpacyDocAdapter
+        cls = SpacyDocAdapter
     elif model_name.startswith("udpipe"):
-        return UDPipeDocAdapter
+        cls = UDPipeDocAdapter
     else:
         raise Exception(f"ERROR: unknown model '{model_name}'")
 
+    if lefff is None:
+        return cls
+    else:
+        def create_doc_adapter_and_apply_leff(adapter, doc, lefff: pandas.DataFrame):
+            doc_adapt: DocAdapter = adapter(doc)
+            doc_adapt.add_leff_decorator(lefff)
+            return doc_adapt
+        return lambda doc: create_doc_adapter_and_apply_leff(cls, doc, lefff)
 
 def smurf_stanza(text: str, smurf_indexes: Optional[Dict[Tuple[int, int], int]] = None) -> str:
     nlp = get_fr_nlp_model("stanza")
@@ -830,13 +922,16 @@ def add_smurf_for_model_and_compare_label(row, doc_adapter, nlp, model_name):
     return row
 
 
-def test_models_on_smurf_dataset(model_names=["stanza"], data_dir="./data"):
+def test_models_on_smurf_dataset(model_names=["stanza"],
+                                 data_dir="./data",
+                                 lefff: Optional[pandas.DataFrame]=None,
+                                 output_csv="test_smurf_dataset.csv"):
     dataset = load_smurf_dataset(data_dir)
 
     for model_name in model_names:
         start = time.process_time()
         nlp = get_fr_nlp_model(model_name)
-        doc_adapter = get_doc_adapter_class(model_name)
+        doc_adapter = get_doc_adapter_class(model_name, lefff)
 
         print("Evaluating " + model_name)
         dataset = dataset.map(lambda row: add_smurf_for_model_and_compare_label(row, doc_adapter, nlp, model_name),
@@ -848,13 +943,13 @@ def test_models_on_smurf_dataset(model_names=["stanza"], data_dir="./data"):
               f"({total_correct/total_examples}%) "
               f"(time = {time.process_time() - start:.2f}s)")
 
-    dataset.to_csv("test_smurf_dataset.csv")
+    dataset.to_csv(output_csv)
 
 
-def smurf_dataset_stats(model_name="stanza", data_dir="./data"):
+def smurf_dataset_stats(model_name="stanza", data_dir="./data", lefff: Optional[pandas.DataFrame]=None):
     dataset = load_smurf_dataset()
     nlp = get_fr_nlp_model(model_name)
-    doc_adapter = get_doc_adapter_class(model_name)
+    doc_adapter = get_doc_adapter_class(model_name, lefff)
     nbr_of_smurf_words = 0
     nbr_of_can_smurf_words = 0
     nbr_of_words = 0
@@ -875,9 +970,11 @@ def smurf_dataset_stats(model_name="stanza", data_dir="./data"):
 
 random.seed(42)
 SMURF_VS_CAN_SMURF_RATIO=0.33
-def random_smurf(text: str, model_name="stanza"):
+
+
+def random_smurf(text: str, model_name="stanza", lefff: Optional[pandas.DataFrame]=None):
     nlp = get_fr_nlp_model(model_name)
-    doc_adapter = get_doc_adapter_class(model_name)
+    doc_adapter = get_doc_adapter_class(model_name, lefff)
     doc = doc_adapter(nlp(text))
 
     smurf_indexes = {}
@@ -900,7 +997,7 @@ def random_smurf(text: str, model_name="stanza"):
     return doc_to_smurf(doc, nlp, doc_adapter, smurf_indexes)
 
 OSCAR_SMURF_CSV_SEPARATOR="ༀ"
-def convert_oscar_file(filepath, start_line=1, model_name="stanza"):
+def convert_oscar_file(filepath, start_line=1, model_name="stanza", lefff: Optional[pandas.DataFrame]=None):
     with open(filepath, 'r') as input_file:
         nbr_of_lines = 0
         while (input_file.readline()):
@@ -928,7 +1025,7 @@ def convert_oscar_file(filepath, start_line=1, model_name="stanza"):
                 if (line_number % 1000) == 0:
                     print(f"{line_number} lines processed {100*line_number/nbr_of_lines}%")
                 try:
-                    smurf_line = random_smurf(line, model_name)
+                    smurf_line = random_smurf(line, model_name, lefff)
                 except:
                     print(f"ERROR converting sentence {line}")
                     continue
@@ -937,12 +1034,12 @@ def convert_oscar_file(filepath, start_line=1, model_name="stanza"):
                                   + smurf_line + "\n")
 
 
-def add_smurf(row, model_name):
-    row['smurf'] = random_smurf(row["text"], model_name)
+def add_smurf(row, model_name, lefff):
+    row['smurf'] = random_smurf(row["text"], model_name, lefff)
     return row
 
 
-def convert_text_file_to_hf_dataset(files, result_path, model_name="stanza", checkpoint_steps=10000):
+def convert_text_file_to_hf_dataset(files, result_path, model_name="stanza", lefff: pandas.DataFrame=None, checkpoint_steps=10000):
     first_index_to_process = 0
     input_dataset = datasets.load_dataset('text', data_files=files, split='train')
     processed_dataset = None
@@ -958,7 +1055,7 @@ def convert_text_file_to_hf_dataset(files, result_path, model_name="stanza", che
     for n, i in enumerate(range(first_index_to_process, len(input_dataset), checkpoint_steps)):
         end_index = min(i + checkpoint_steps, len(input_dataset))
         dataset_split = input_dataset.select(range(i, end_index))
-        processed_split = dataset_split.map(lambda row: add_smurf(row, model_name))
+        processed_split = dataset_split.map(lambda row: add_smurf(row, model_name, lefff))
         if processed_dataset is None:
             processed_dataset = processed_split
         else:
