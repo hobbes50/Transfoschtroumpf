@@ -181,6 +181,18 @@ class TokenAdapter:
     def end_char(self) -> int:
         raise NotImplementedError()
 
+    def __str__(self):
+        string = f"{self.text}:{remove_prefix(str(self.pos), 'BasicPOS')},"
+        string += (remove_prefix(str(self.tense), "FrenchTense.") if self.tense != FrenchTense.NONE else "") + ","
+        if self.person != 0:
+            string += str(self.person)
+        string += "f" if self.is_feminine() else "m"
+        string += "p" if self.is_plural() else "s"
+        if self.lemma:
+            string += f"[{self.lemma}]"
+        return string
+
+
     def can_smurf(self) -> bool:
         # Already "smurfed" words must be left untouched (often proper nouns, e.g. "Grand Schtroumpf")
         if SCHTROUMPF_STR in self.text.lower():
@@ -287,7 +299,8 @@ WHOLE_WORD=-1
 def doc_to_smurf(doc : DocAdapter,
                  nlp,
                  adapter_doc_cls: Callable[[Any], DocAdapter],
-                 smurf_indexes: Optional[Dict[Tuple[int, int], int]] = None):
+                 smurf_indexes: Optional[Dict[Tuple[int, int], int]] = None,
+                 tagger_details: List[str] = None):
     text = doc.text
     smurf_text = ""
     last_token_end_char = 0
@@ -303,11 +316,15 @@ def doc_to_smurf(doc : DocAdapter,
 
                 if index_in_compound_word == WHOLE_WORD:
                     smurf_word = token.to_smurf()
+                    if tagger_details is not None:
+                        tagger_details.append(str(token))
                 else:
                     parts = token.text.split("-")
                     subtext = parts[index_in_compound_word]
                     subtoken = adapter_doc_cls(nlp(subtext)).sentences[0].tokens[0]
                     smurf_subword = subtoken.to_smurf()
+                    if tagger_details is not None:
+                        tagger_details.append(str(subtoken))
                     parts[index_in_compound_word] = smurf_subword
                     smurf_word = "-".join(parts)
 
@@ -915,9 +932,11 @@ def add_smurf_for_model_and_compare_label(row, doc_adapter, nlp, model_name):
     doc_fr = doc_adapter(nlp(row["french"]))
     smurf_indexes = find_smurf_indexes(doc_smurf)
 
-    to_smurf = doc_to_smurf(doc_fr, nlp, doc_adapter, smurf_indexes)
+    tagger_details = []
+    to_smurf = doc_to_smurf(doc_fr, nlp, doc_adapter, smurf_indexes, tagger_details)
     row[model_name] = to_smurf
     row[model_name + "_ok"] = (to_smurf == doc_smurf.text)
+    row[model_name + "_details"] = " ; ".join(tagger_details)
 
     return row
 
