@@ -16,7 +16,9 @@ import os
 import shutil
 import copy
 import pandas
+import csv
 
+Lexicon = Dict[str, List[Dict[str, str]]]
 
 def remove_prefix(string: str, prefix: str) -> str:
     if string.startswith(prefix):
@@ -291,7 +293,7 @@ class SentenceAdapter:
     def tokens(self) -> List[TokenAdapter]:
         return self._tokens
 
-    def add_leff_decorator(self, lefff: pandas.DataFrame):
+    def add_leff_decorator(self, lefff: Lexicon):
         self._tokens = list(map(lambda token: LefffTokenAdapter(token, lefff), self._tokens))
 
 class DocAdapter:
@@ -303,7 +305,7 @@ class DocAdapter:
     def sentences(self) -> List[SentenceAdapter]:
         raise NotImplementedError()
 
-    def add_leff_decorator(self, lefff: pandas.DataFrame):
+    def add_leff_decorator(self, lefff: Lexicon):
         for sentence in self.sentences:
             sentence.add_leff_decorator(lefff)
 
@@ -439,20 +441,29 @@ def lefff_code_to_feats(lefff_code: str) -> List[TokenFeatures]:
     return feats
 
 
-def read_lefff_dict(path) -> pandas.DataFrame:
-    df = pandas.read_csv(path, delimiter='\t', engine="c", names=["form", "pos", "lemma", "feats"], quoting=3)
-    df = df.set_index("form")
-    return df
+def read_lefff_dict(path) -> Lexicon:
+    result: Lexicon = {}
+    with open(path, newline='') as csvfile:
+        reader = csv.DictReader(csvfile,
+                                fieldnames=["form", "pos", "lemma", "feats"],
+                                delimiter='\t',
+                                quoting=csv.QUOTE_NONE)
+        for row in reader:
+            try:
+                result[row["form"]].append(row)
+            except KeyError:
+                result[row["form"]] = [row]
+    return result
 
 
-def get_token_features_from_lefff(token: str, lefff: pandas.DataFrame) -> List[TokenFeatures]:
+def get_token_features_from_lefff(token: str, lefff: Lexicon) -> List[TokenFeatures]:
     token_features = []
     token_lower = token.lower()
     try:
-        df = lefff.loc[[token_lower]]
+        matching_rows = lefff[token_lower]
     except KeyError:
         return []
-    for _, row in df.iterrows():
+    for row in matching_rows:
         row_features: List[TokenFeatures] = []
         feats = row["feats"]
         if feats and pandas.notna(feats) and feats != "e":
@@ -492,7 +503,7 @@ def get_token_feature_sort_key_with_token(feat: TokenFeatures, token: TokenAdapt
 
 
 class LefffTokenAdapter(TokenAdapter):
-    def __init__(self, token: TokenAdapter, lefff: pandas.DataFrame):
+    def __init__(self, token: TokenAdapter, lefff: Lexicon):
         self.token = token
         possible_feats = get_token_features_from_lefff(token.text, lefff)
         if len(possible_feats) == 1:
@@ -893,7 +904,7 @@ def get_fr_nlp_model(name: str):
         return model
 
 
-def get_doc_adapter_class(model_name: str, lefff: pandas.DataFrame=None):
+def get_doc_adapter_class(model_name: str, lefff: Lexicon=None):
     if model_name.startswith("stanza"):
         cls = StanzaDocAdapter
     elif model_name.startswith("spacy"):
@@ -906,7 +917,7 @@ def get_doc_adapter_class(model_name: str, lefff: pandas.DataFrame=None):
     if lefff is None or not model_name.endswith("^lefff"):
         return cls
     else:
-        def create_doc_adapter_and_apply_leff(adapter, doc, lefff: pandas.DataFrame):
+        def create_doc_adapter_and_apply_leff(adapter, doc, lefff: Lexicon):
             doc_adapt: DocAdapter = adapter(doc)
             doc_adapt.add_leff_decorator(lefff)
             return doc_adapt
@@ -958,7 +969,7 @@ def add_smurf_for_model_and_compare_label(row, doc_adapter, nlp, model_name):
 
 def test_models_on_smurf_dataset(model_names=["stanza"],
                                  data_dir="./data",
-                                 lefff: Optional[pandas.DataFrame]=None,
+                                 lefff: Optional[Lexicon]=None,
                                  output_csv="test_smurf_dataset.csv"):
     dataset = load_smurf_dataset(data_dir)
 
@@ -980,7 +991,7 @@ def test_models_on_smurf_dataset(model_names=["stanza"],
     dataset.to_csv(output_csv)
 
 
-def smurf_dataset_stats(model_name="stanza", data_dir="./data", lefff: Optional[pandas.DataFrame]=None):
+def smurf_dataset_stats(model_name="stanza", data_dir="./data", lefff: Optional[Lexicon]=None):
     dataset = load_smurf_dataset()
     nlp = get_fr_nlp_model(model_name)
     doc_adapter = get_doc_adapter_class(model_name, lefff)
@@ -1006,7 +1017,7 @@ random.seed(42)
 SMURF_VS_CAN_SMURF_RATIO=0.33
 
 
-def random_smurf(text: str, model_name="stanza", lefff: Optional[pandas.DataFrame]=None):
+def random_smurf(text: str, model_name="stanza", lefff: Optional[Lexicon]=None):
     nlp = get_fr_nlp_model(model_name)
     doc_adapter = get_doc_adapter_class(model_name, lefff)
     doc = doc_adapter(nlp(text))
@@ -1030,50 +1041,13 @@ def random_smurf(text: str, model_name="stanza", lefff: Optional[pandas.DataFram
 
     return doc_to_smurf(doc, nlp, doc_adapter, smurf_indexes)
 
-OSCAR_SMURF_CSV_SEPARATOR="ༀ"
-def convert_oscar_file(filepath, start_line=1, model_name="stanza", lefff: Optional[pandas.DataFrame]=None):
-    with open(filepath, 'r') as input_file:
-        nbr_of_lines = 0
-        while (input_file.readline()):
-            nbr_of_lines += 1
-    print(f"{nbr_of_lines} lines to process in {filepath}")
-
-    with open(filepath, 'r') as input_file:
-        output_filename = os.path.join(os.path.dirname(filepath),
-                                       "smurf_" + os.path.basename(filepath))
-        line_number = 0
-        with open(output_filename, 'w' if start_line <= 1 else "a") as output_file:
-            while True:
-                line = input_file.readline()
-                if not line:
-                    break
-                line_number += 1
-                line = line.rstrip('\n')
-
-                if not line:
-                    continue
-
-                if line_number < start_line:
-                    continue
-
-                if (line_number % 1000) == 0:
-                    print(f"{line_number} lines processed {100*line_number/nbr_of_lines}%")
-                try:
-                    smurf_line = random_smurf(line, model_name, lefff)
-                except:
-                    print(f"ERROR converting sentence {line}")
-                    continue
-                output_file.write(str(line_number) + OSCAR_SMURF_CSV_SEPARATOR
-                                  + line + OSCAR_SMURF_CSV_SEPARATOR
-                                  + smurf_line + "\n")
-
 
 def add_smurf(row, model_name, lefff):
     row['smurf'] = random_smurf(row["text"], model_name, lefff)
     return row
 
 
-def convert_text_file_to_hf_dataset(files, result_path, model_name="stanza", lefff: pandas.DataFrame=None, checkpoint_steps=10000):
+def convert_text_file_to_hf_dataset(files, result_path, model_name="stanza", lefff: Lexicon=None, checkpoint_steps=10000):
     first_index_to_process = 0
     input_dataset = datasets.load_dataset('text', data_files=files, split='train')
     processed_dataset = None
