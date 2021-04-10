@@ -17,6 +17,20 @@ import shutil
 import copy
 import pandas
 
+
+def remove_prefix(string: str, prefix: str) -> str:
+    if string.startswith(prefix):
+        return string[len(prefix):]
+    else:
+        return string
+
+
+def remove_suffix(string: str, suffix: str) -> str:
+    if string.endswith(suffix):
+        return string[:-len(suffix)]
+    else:
+        return string
+
 SCHTROUMPF_STR="schtroumpf"
 
 class FrenchTense(Enum):
@@ -854,6 +868,7 @@ class UDPipeDocAdapter(DocAdapter):
 
 Cached_fr_models: Dict[str, Any] = {}
 def get_fr_nlp_model(name: str):
+    name = remove_suffix(name, "^lefff")
     global Cached_fr_models
     try:
         return Cached_fr_models[name]
@@ -888,7 +903,7 @@ def get_doc_adapter_class(model_name: str, lefff: pandas.DataFrame=None):
     else:
         raise Exception(f"ERROR: unknown model '{model_name}'")
 
-    if lefff is None:
+    if lefff is None or not model_name.endswith("^lefff"):
         return cls
     else:
         def create_doc_adapter_and_apply_leff(adapter, doc, lefff: pandas.DataFrame):
