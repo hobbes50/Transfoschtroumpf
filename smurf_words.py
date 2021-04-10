@@ -86,6 +86,7 @@ SPECIAL_SMURF_NOUNS: Dict[str, str] = {
 SPECIAL_SMURF_ADJECTIVES: Dict[str, str] = {
     "esthétique":f"esthéti{SCHTROUMPF_STR}",
     "formidable":f"formi{SCHTROUMPF_STR}",
+    "fratricide":f"{SCHTROUMPF_STR}icide",
     "universel":f"univer{SCHTROUMPF_STR}"
 }
 
@@ -194,8 +195,8 @@ class TokenAdapter:
         raise NotImplementedError()
 
     def __str__(self):
-        string = f"{self.text}:{remove_prefix(str(self.pos), 'BasicPOS')},"
-        string += (remove_prefix(str(self.tense), "FrenchTense.") if self.tense != FrenchTense.NONE else "") + ","
+        string = f"{self.text}:{remove_prefix(str(self.pos), 'BasicPOS.')},"
+        string += (remove_prefix(str(self.tense), "FrenchTense.") + ",") if self.tense != FrenchTense.NONE else ""
         if self.person != 0:
             string += str(self.person)
         string += "f" if self.is_feminine() else "m"
@@ -266,11 +267,10 @@ class TokenAdapter:
                 new_text = SPECIAL_SMURF_ADJECTIVES[self.lemma]
             else:
                 m = re.search(Ajd_ant_ends, self.text)
-                suffix = m.group(0) if m else ""
+                suffix = m.group(0) if m else self.plural_suffix()
 
                 new_text = SCHTROUMPF_STR + suffix
 
-            new_text += self.plural_suffix()
         elif pos == BasicPOS.INTERJECTION:
             new_text = SCHTROUMPF_STR
         else:
@@ -375,7 +375,7 @@ Lefff_to_fr_tense: Dict[str, FrenchTense] = {"P": FrenchTense.PRESENT,
                                              "S": FrenchTense.SUBJ_PRESENT,
                                              "T": FrenchTense.SUBJ_IMPARFAIT,
                                              "K": FrenchTense.PARTICIPE_PASSE,
-                                             "G": FrenchTense.COND_PRESENT,
+                                             "G": FrenchTense.GERONDIF,
                                              "W": FrenchTense.INFINITIF}
 
 @dataclass
@@ -481,7 +481,7 @@ def get_token_feature_sort_key_with_token(feat: TokenFeatures, token: TokenAdapt
     #  get_token_feature_sort_key)
     tense_match_p = (feat.tense == token.tense)
     person_match_p = (feat.person == token.person)
-    plural_match_p = (feat.is_plural == token.is_plural)
+    plural_match_p = (feat.is_plural == token.is_plural())
     fem_match_p = (feat.is_feminine == token.is_feminine())
     full_person_match_p = person_match_p and plural_match_p and fem_match_p
     lemma_match_p = (feat.lemma == token.lemma)
